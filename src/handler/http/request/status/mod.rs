@@ -157,6 +157,7 @@ struct ConfigResponse<'a> {
     extended_data_retention_days: i64,
     restricted_routes_on_empty_data: bool,
     sso_enabled: bool,
+    oidc_enabled: bool,
     native_login_enabled: bool,
     service_account_enabled: bool,
     rbac_enabled: bool,
@@ -337,8 +338,13 @@ pub async fn zo_config() -> impl IntoResponse {
     #[cfg(feature = "enterprise")]
     let block_features = block_feature_for_report_failure().await;
 
-    let sso_enabled = enterprise_value!(false, dex_cfg.dex_enabled, block_features);
-    let native_login_enabled = enterprise_value!(true, dex_cfg.native_login_enabled);
+    let oidc_enabled = cfg!(all(feature = "oidc", not(feature = "enterprise"))) && cfg.oidc.enabled;
+    let sso_enabled = enterprise_value!(false, dex_cfg.dex_enabled, block_features) || oidc_enabled;
+    let native_login_enabled = if oidc_enabled {
+        cfg.oidc.native_login_enabled
+    } else {
+        enterprise_value!(true, dex_cfg.native_login_enabled)
+    };
     let service_account_enabled = cfg.auth.service_account_enabled;
     let rbac_enabled = enterprise_value!(false, openfga_cfg.enabled, block_features);
     let actions_enabled = enterprise_value!(false, o2cfg.actions.enabled);
@@ -422,6 +428,7 @@ pub async fn zo_config() -> impl IntoResponse {
         extended_data_retention_days: cfg.compact.extended_data_retention_days,
         restricted_routes_on_empty_data: cfg.common.restricted_routes_on_empty_data,
         sso_enabled,
+        oidc_enabled,
         native_login_enabled,
         service_account_enabled,
         rbac_enabled,

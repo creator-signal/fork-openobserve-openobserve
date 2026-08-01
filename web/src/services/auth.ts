@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
- 
 import http from "./http";
+import store from "../stores";
 
 const auth = {
   sign_in_user: (payload: any) => {
@@ -25,10 +25,18 @@ const auth = {
     const res = await http().get("/config/dex_login");
     return res.data;
   },
-  refresh_token: async () => {
-    const res = await http().get("/config/dex_refresh");
+  get_oidc_login: async () => {
+    const res = await http().get("/config/oidc/login");
     return res.data;
-  }
+  },
+  refresh_token: async (oidc?: boolean) => {
+    const useOidc =
+      oidc ?? Boolean((store.state as any).zoConfig?.oidc_enabled);
+    const res = await http().get(
+      useOidc ? "/config/oidc/refresh" : "/config/dex_refresh",
+    );
+    return res.data;
+  },
 };
 
 export default auth;

@@ -1,0 +1,67 @@
+name: Propose latest upstream stable
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Resolve upstream versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(tr -d '[:space:]' < .creator-signal/openobserve-version)"
+          latest="$(gh api repos/openobserve/openobserve/releases/latest --jq .tag_name)"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "$latest" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Merge the latest stable tag
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          git remote add upstream https://github.com/openobserve/openobserve.git
+          git fetch upstream "refs/tags/${LATEST}:refs/tags/${LATEST}"
+          branch="bot/openobserve-${LATEST}"
+          git switch -c "$branch"
+          git config user.name creator-signal-bot
+          git config user.email creator-signal-bot@users.noreply.github.com
+          git merge --no-edit "$LATEST"
+          printf '%s\n' "$LATEST" > .creator-signal/openobserve-version
+          git add -- .creator-signal/openobserve-version
+          git commit -m "chore: update OpenObserve baseline to ${LATEST}"
+          git push --force-with-lease origin "$branch"
+      - name: Open or reuse update pull request
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+          CURRENT: ${{ steps.versions.outputs.current }}
+        run: |
+          branch="bot/openobserve-${LATEST}"
+          existing="$(gh pr list --head "$branch" --base main --state open --json url --jq '.[0].url // empty')"
+          if [ -n "$existing" ]; then
+            echo "Update PR already exists: $existing"
+            exit 0
+          fi
+          gh pr create \
+            --draft \
+            --base main \
+            --head "$branch" \
+            --title "chore: update OpenObserve ${CURRENT} to ${LATEST}" \
+            --body "Merges upstream stable ${LATEST} into the Creator Signal OIDC overlay. CI must pass for both plain OSS and the oidc feature before this is promoted."

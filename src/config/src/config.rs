@@ -568,6 +568,7 @@ impl FileFormat {
 #[derive(Serialize, EnvConfig, Default)]
 pub struct Config {
     pub auth: Auth,
+    pub oidc: Oidc,
     pub http_streaming: HttpStreaming,
     pub report_server: ReportServer,
     pub http: Http,
@@ -591,6 +592,53 @@ pub struct Config {
     pub pipeline: Pipeline,
     pub health_check: HealthCheck,
     pub enrichment_table: EnrichmentTable,
+}
+
+/// OpenID Connect settings for the optional open-source `oidc` build feature.
+///
+/// These settings intentionally live in the public configuration crate rather than in an
+/// enterprise dependency. Builds without the `oidc` feature ignore them and always report OIDC as
+/// disabled.
+#[derive(Serialize, EnvConfig, Default)]
+pub struct Oidc {
+    #[env_config(name = "ZO_OIDC_ENABLED", default = false)]
+    pub enabled: bool,
+    #[env_config(name = "ZO_OIDC_ISSUER", default = "")]
+    pub issuer: String,
+    #[env_config(name = "ZO_OIDC_CLIENT_ID", default = "")]
+    pub client_id: String,
+    #[env_config(name = "ZO_OIDC_CLIENT_SECRET", default = "")]
+    pub client_secret: String,
+    #[env_config(name = "ZO_OIDC_CLIENT_SECRET_FILE", default = "")]
+    pub client_secret_file: String,
+    #[env_config(
+        name = "ZO_OIDC_TOKEN_ENDPOINT_AUTH_METHOD",
+        default = "client_secret_basic"
+    )]
+    pub token_endpoint_auth_method: String,
+    #[env_config(name = "ZO_OIDC_REDIRECT_URL", default = "")]
+    pub redirect_url: String,
+    #[env_config(name = "ZO_OIDC_POST_LOGIN_URL", default = "")]
+    pub post_login_url: String,
+    #[env_config(name = "ZO_OIDC_SCOPES", default = "openid profile email")]
+    pub scopes: String,
+    #[env_config(name = "ZO_OIDC_DEFAULT_ORG", default = "default")]
+    pub default_org: String,
+    #[env_config(
+        name = "ZO_OIDC_ROLE_CLAIM",
+        default = "urn:zitadel:iam:org:project:roles"
+    )]
+    pub role_claim: String,
+    #[env_config(name = "ZO_OIDC_REQUIRED_ROLE", default = "")]
+    pub required_role: String,
+    #[env_config(name = "ZO_OIDC_NATIVE_LOGIN_ENABLED", default = true)]
+    pub native_login_enabled: bool,
+    #[env_config(name = "ZO_OIDC_SESSION_MAX_AGE", default = 28800)]
+    pub session_max_age: i64,
+    #[env_config(name = "ZO_OIDC_STATE_TTL", default = 600)]
+    pub state_ttl: i64,
+    #[env_config(name = "ZO_OIDC_INSECURE_ALLOW_HTTP", default = false)]
+    pub insecure_allow_http: bool,
 }
 
 #[derive(Serialize, EnvConfig, Default)]

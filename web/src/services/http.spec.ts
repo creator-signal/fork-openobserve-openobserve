@@ -26,7 +26,7 @@ vi.mock("../stores", () => ({
   default: {
     state: {
       API_ENDPOINT: "http://localhost:5080",
-      zoConfig: { sso_enabled: false },
+      zoConfig: { sso_enabled: false, oidc_enabled: false },
     },
     dispatch: vi.fn(),
   },
@@ -79,6 +79,7 @@ describe("attemptTokenRefresh", () => {
     (config as any).isCloud = "false";
     (config as any).isEnterprise = "false";
     (store.state as any).zoConfig.sso_enabled = false;
+    (store.state as any).zoConfig.oidc_enabled = false;
 
     // Spy on window.location.reload without touching read-only location
     reloadMock = vi.fn();
@@ -109,6 +110,15 @@ describe("attemptTokenRefresh", () => {
   it("should reject immediately for dex_refresh URL", async () => {
     await expect(
       attemptTokenRefresh("http://localhost:5080/config/dex_refresh"),
+    ).rejects.toThrow();
+
+    expect(store.dispatch).not.toHaveBeenCalled();
+    expect(reloadMock).not.toHaveBeenCalled();
+  });
+
+  it("should reject immediately for the OIDC refresh URL", async () => {
+    await expect(
+      attemptTokenRefresh("http://localhost:5080/config/oidc/refresh"),
     ).rejects.toThrow();
 
     expect(store.dispatch).not.toHaveBeenCalled();
@@ -153,6 +163,21 @@ describe("attemptTokenRefresh", () => {
       attemptTokenRefresh("http://localhost:5080/api/org/_search"),
     ).resolves.toBeUndefined();
 
+    expect(vi.mocked(store.dispatch)).not.toHaveBeenCalled();
+    expect(reloadMock).not.toHaveBeenCalled();
+  });
+
+  it("should validate the opaque session through oidc/refresh", async () => {
+    (store.state as any).zoConfig.sso_enabled = true;
+    (store.state as any).zoConfig.oidc_enabled = true;
+
+    const mockInstance = buildAxiosMock(() => Promise.resolve({ status: 204 }));
+
+    await expect(
+      attemptTokenRefresh("http://localhost:5080/api/org/_search"),
+    ).resolves.toBeUndefined();
+
+    expect(mockInstance.get).toHaveBeenCalledWith("/config/oidc/refresh");
     expect(vi.mocked(store.dispatch)).not.toHaveBeenCalled();
     expect(reloadMock).not.toHaveBeenCalled();
   });

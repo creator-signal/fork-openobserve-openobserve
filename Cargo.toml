@@ -24,6 +24,7 @@ publish = false
 [features]
 default = []
 enterprise = []
+oidc = []
 vectorscan = []
 cloud = []
 vortex = ["config/vortex"]
@@ -150,6 +151,7 @@ sea-orm.workspace = true
 segment.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sha256.workspace = true
 snafu.workspace = true
 snap.workspace = true
@@ -424,6 +426,7 @@ segment = "~0.2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha1 = "0.10.6"
+sha2 = "0.10"
 sha256 = "1.6"
 snafu = "0.9"
 snap = "1"
