@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+oidc = []
 enterprise = [
     "audit/enterprise",
     "dep:o2_dex",

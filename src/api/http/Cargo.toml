@@ -10,6 +10,10 @@ path = "src/lib.rs"
 
 [features]
 default = []
+oidc = [
+    "openobserve-api-common/oidc",
+    "openobserve-api-management/oidc",
+]
 enterprise = [
     "dep:o2_dex",
     "dep:o2_enterprise",

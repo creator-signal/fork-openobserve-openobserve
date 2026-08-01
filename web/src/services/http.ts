@@ -20,7 +20,7 @@ import config from "../aws-exports";
 import { useLocalUserInfo, useLocalCurrentUser } from "@/utils/zincutils";
 import { addUnauthorizedError } from "@/composables/useUnauthorizedErrorGrouper";
 
-// Shared refresh state — ensures only one dex_refresh request is in-flight
+// Shared refresh state — ensures only one SSO session check/refresh is in-flight
 // at a time across all axios instances and streaming fetch requests. All
 // concurrent 401s wait on the same Promise and retry once it resolves.
 let refreshPromise: Promise<void> | null = null;
@@ -32,6 +32,9 @@ export const attemptTokenRefresh = (requestUrl: string = ""): Promise<void> => {
   if (
     requestUrl.includes("/config/dex_login") ||
     requestUrl.includes("/config/dex_refresh") ||
+    requestUrl.includes("/config/oidc/login") ||
+    requestUrl.includes("/config/oidc/callback") ||
+    requestUrl.includes("/config/oidc/refresh") ||
     requestUrl.includes("/auth/login")
   ) {
     return Promise.reject(new Error("Cannot refresh: auth endpoint"));
@@ -46,17 +49,22 @@ export const attemptTokenRefresh = (requestUrl: string = ""): Promise<void> => {
     return Promise.reject(new Error("Cloud environment: direct logout"));
   }
 
-  if (config.isEnterprise == "true" && (store.state as any).zoConfig.sso_enabled) {
+  const zoConfig = (store.state as any).zoConfig;
+  const oidcEnabled = Boolean(zoConfig.oidc_enabled);
+  if ((config.isEnterprise == "true" || oidcEnabled) && zoConfig.sso_enabled) {
     if (!refreshPromise) {
       const refreshInstance = axios.create({
         withCredentials: true,
         baseURL: store.state.API_ENDPOINT,
       });
+      const refreshPath = oidcEnabled
+        ? "/config/oidc/refresh"
+        : "/config/dex_refresh";
       refreshPromise = refreshInstance
-        .get("/config/dex_refresh")
+        .get(refreshPath)
         .then((res) => {
-          if (res.status !== 200) {
-            return Promise.reject(new Error("Refresh returned non-200"));
+          if (res.status < 200 || res.status >= 300) {
+            return Promise.reject(new Error("Refresh returned non-2xx"));
           }
           return undefined;
         })
@@ -122,7 +130,13 @@ const http = ({ headers } = {} as any) => {
             // Delegate to the shared refresh helper — it owns the URL exclusion
             // checks and the logout-on-failure path. Retry the original request
             // once the token is refreshed.
-            else if (config.isEnterprise == "true" && (store.state as any).zoConfig.sso_enabled) {
+            else if (
+              (config.isEnterprise == "true" ||
+                (store.state as any).zoConfig.oidc_enabled) &&
+              (store.state as any).zoConfig.sso_enabled &&
+              !error.config.__ssoRetry
+            ) {
+              error.config.__ssoRetry = true;
               return attemptTokenRefresh(error.config.url)
                 .then(() => instance.request(error.config))
                 .catch(() => Promise.reject(error));

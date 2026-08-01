@@ -1,0 +1,165 @@
+name: Release Creator Signal OIDC image
+
+on:
+  push:
+    tags:
+      - "openobserve-main-*-cs.*"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate release ancestry and tag contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_ref="$(jq -r .ref .creator-signal/openobserve-base.json)"
+          upstream_commit="$(jq -r .commit .creator-signal/openobserve-base.json)"
+          upstream_version="$(jq -r .version .creator-signal/openobserve-base.json)"
+          upstream_short="${upstream_commit:0:12}"
+          expected_prefix="openobserve-main-${upstream_short}-cs."
+          if [[ "$GITHUB_REF_NAME" != "${expected_prefix}"* ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match recorded upstream main $upstream_short" >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${upstream_commit}^{commit}" 2>/dev/null; then
+            git fetch https://github.com/openobserve/openobserve.git main
+          fi
+          git merge-base --is-ancestor "$upstream_commit" HEAD
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner}/openobserve-oidc"
+          {
+            echo "upstream_ref=${upstream_ref}"
+            echo "upstream_commit=${upstream_commit}"
+            echo "upstream_version=${upstream_version}"
+            echo "image=${image}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish multi-architecture image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/build/Dockerfile.oidc
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.contract.outputs.image }}:${{ github.ref_name }}
+            ${{ steps.contract.outputs.image }}:sha-${{ github.sha }}
+          build-args: |
+            BUILD_VERSION=${{ github.ref_name }}
+            BUILD_REVISION=${{ github.sha }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
+          provenance: mode=max
+          cache-from: type=gha,scope=oidc-release
+          cache-to: type=gha,mode=max,scope=oidc-release
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.contract.outputs.image }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign image by digest
+        env:
+          IMAGE: ${{ steps.contract.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.contract.outputs.image }}@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          output-file: openobserve-oidc-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+
+      - name: Generate release artifacts
+        env:
+          UPSTREAM_REF: ${{ steps.contract.outputs.upstream_ref }}
+          UPSTREAM_COMMIT: ${{ steps.contract.outputs.upstream_commit }}
+          UPSTREAM_VERSION: ${{ steps.contract.outputs.upstream_version }}
+          IMAGE: ${{ steps.contract.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          jq -n \
+            --arg upstreamRef "$UPSTREAM_REF" \
+            --arg upstreamVersion "$UPSTREAM_VERSION" \
+            --arg upstreamCommit "$UPSTREAM_COMMIT" \
+            --arg sourceRepository "$GITHUB_REPOSITORY" \
+            --arg sourceCommit "$GITHUB_SHA" \
+            --arg sourceTag "$GITHUB_REF_NAME" \
+            --arg image "$IMAGE" \
+            --arg imageDigest "$DIGEST" \
+            --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              schemaVersion: 1,
+              upstreamRef: $upstreamRef,
+              upstreamVersion: $upstreamVersion,
+              upstreamCommit: $upstreamCommit,
+              sourceRepository: $sourceRepository,
+              sourceCommit: $sourceCommit,
+              sourceTag: $sourceTag,
+              image: $image,
+              imageDigest: $imageDigest,
+              features: ["oidc", "mimalloc"],
+              generatedAt: $generatedAt
+            }' > release-metadata.json
+          git archive --format=tar.gz \
+            --output="openobserve-oidc-${GITHUB_REF_NAME}-source.tar.gz" HEAD
+          sha256sum \
+            release-metadata.json \
+            "openobserve-oidc-${GITHUB_REF_NAME}.spdx.json" \
+            "openobserve-oidc-${GITHUB_REF_NAME}-source.tar.gz" \
+            > SHA256SUMS
+
+      - name: Validate release metadata
+        run: |
+          npx --yes ajv-cli@5 validate \
+            --spec=draft2020 \
+            -s .creator-signal/release-metadata.schema.json \
+            -d release-metadata.json
+
+      - name: Upload immutable workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openobserve-oidc-${{ github.ref_name }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            release-metadata.json
+            openobserve-oidc-${{ github.ref_name }}.spdx.json
+            openobserve-oidc-${{ github.ref_name }}-source.tar.gz
+            SHA256SUMS
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: OpenObserve OIDC ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-metadata.json
+            openobserve-oidc-${{ github.ref_name }}.spdx.json
+            openobserve-oidc-${{ github.ref_name }}-source.tar.gz
+            SHA256SUMS

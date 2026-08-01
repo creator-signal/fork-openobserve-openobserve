@@ -1,0 +1,39 @@
+name: OIDC compatibility with upstream main
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: nightly-2026-05-20
+
+jobs:
+  merge-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Perform throw-away upstream merge
+        run: |
+          git remote add upstream https://github.com/openobserve/openobserve.git
+          git fetch --no-tags upstream main
+          git -c user.name=creator-signal-bot \
+              -c user.email=creator-signal-bot@users.noreply.github.com \
+              merge --no-commit --no-ff upstream/main
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          prefix-key: creator-signal-upstream-main
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config
+      - run: cargo check --locked --features oidc

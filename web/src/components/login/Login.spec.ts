@@ -31,6 +31,7 @@ vi.mock("@/services/auth", () => ({
   default: {
     sign_in_user: vi.fn(),
     get_dex_login: vi.fn(),
+    get_oidc_login: vi.fn(),
   },
 }));
 
@@ -110,12 +111,14 @@ describe("Login", () => {
       data: { status: true, role: "admin" },
     });
     (authService.default.get_dex_login as any).mockResolvedValue("https://sso.example.com");
+    (authService.default.get_oidc_login as any).mockResolvedValue("https://oidc.example.com");
 
     // Create mock store
     store = createStore({
       state: {
         zoConfig: {
           sso_enabled: true,
+          oidc_enabled: false,
           native_login_enabled: true,
           rum: {
             enabled: true,
@@ -351,6 +354,18 @@ describe("Login", () => {
 
     await wrapper.vm.loginWithSSo();
     expect(authService.default.get_dex_login).toHaveBeenCalled();
+  });
+
+  it("should use the OSS OIDC login endpoint when OIDC is enabled", async () => {
+    const authService = await import("@/services/auth");
+    store.state.zoConfig.oidc_enabled = true;
+    mountComponentWithMocks();
+
+    await wrapper.vm.loginWithSSo();
+    await flushPromises();
+
+    expect(authService.default.get_oidc_login).toHaveBeenCalled();
+    expect(authService.default.get_dex_login).not.toHaveBeenCalled();
   });
 
   // Test 13: loginWithSSo redirects to SSO URL
@@ -1269,7 +1284,6 @@ describe("Login", () => {
     expect(wrapper.vm.tab).toBe("signup");
     expect(wrapper.vm.innerTab).toBe("signin");
   });
-
   // OForm migration: the internal-user login form must submit on Enter (native
   // <form> submit) and validate email/password before calling the auth service.
   describe("internal login form (OForm)", () => {
