@@ -14,8 +14,8 @@ COPY --from=webbuilder /web/dist web/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/openobserve/target,sharing=locked \
-    cargo build --profile release-prod --features oidc,mimalloc && \
-    cp target/release-prod/openobserve /tmp/openobserve
+    cargo build --release --features oidc,mimalloc && \
+    cp target/release/openobserve /tmp/openobserve
 
 FROM public.ecr.aws/debian/debian:trixie-slim AS runtime
 ARG BUILD_VERSION=dev
