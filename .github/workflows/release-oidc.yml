@@ -53,13 +53,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build and publish multi-architecture image
+      - name: Build and publish image
         id: image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/build/Dockerfile.oidc
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ steps.contract.outputs.image }}:${{ github.ref_name }}
@@ -69,8 +69,8 @@ jobs:
             BUILD_REVISION=${{ github.sha }}
             SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
           provenance: mode=max
-          cache-from: type=gha,scope=oidc-release
-          cache-to: type=gha,mode=max,scope=oidc-release
+          cache-from: type=gha,scope=oidc-container
+          cache-to: type=gha,mode=max,scope=oidc-container
 
       - name: Attest image provenance
         uses: actions/attest-build-provenance@v3
@@ -122,6 +122,7 @@ jobs:
               sourceTag: $sourceTag,
               image: $image,
               imageDigest: $imageDigest,
+              platforms: ["linux/amd64"],
               features: ["oidc", "mimalloc"],
               generatedAt: $generatedAt
             }' > release-metadata.json

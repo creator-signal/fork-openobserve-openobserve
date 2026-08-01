@@ -77,7 +77,7 @@ git push origin openobserve-main-72f7bff3787e-cs.1
 ```
 
 The release workflow refuses a tag whose upstream commit differs from the marker file or whose
-commit does not descend from that exact upstream commit. It publishes a multi-architecture GHCR
+commit does not descend from that exact upstream commit. It publishes a Linux AMD64 GHCR
 image, keyless signature, registry provenance, SPDX SBOM, checksums, source archive, and validated
 `release-metadata.json`. The stack should consume the image by digest from that metadata, never by
 `latest`.
