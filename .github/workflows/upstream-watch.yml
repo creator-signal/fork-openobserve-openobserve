@@ -1,0 +1,69 @@
+name: Propose latest upstream main
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Resolve upstream commits
+        id: versions
+        run: |
+          current="$(jq -r .commit .creator-signal/openobserve-base.json)"
+          latest="$(git ls-remote https://github.com/openobserve/openobserve.git refs/heads/main | cut -f1)"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "$latest" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Merge latest upstream main
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          git remote add upstream https://github.com/openobserve/openobserve.git
+          git fetch upstream main
+          branch="bot/openobserve-main-${LATEST:0:12}"
+          git switch -c "$branch"
+          git config user.name creator-signal-bot
+          git config user.email creator-signal-bot@users.noreply.github.com
+          git merge --no-edit upstream/main
+          version="$(sed -n 's/^version = "\(.*\)"/v\1/p' Cargo.toml | head -1)"
+          jq --arg commit "$LATEST" --arg version "$version" \
+            '.commit = $commit | .version = $version' \
+            .creator-signal/openobserve-base.json > .creator-signal/openobserve-base.json.tmp
+          mv .creator-signal/openobserve-base.json.tmp .creator-signal/openobserve-base.json
+          git add -- .creator-signal/openobserve-base.json
+          git commit -m "chore: update OpenObserve main baseline to ${LATEST:0:12}"
+          git push --force-with-lease origin "$branch"
+      - name: Open or reuse update pull request
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+          CURRENT: ${{ steps.versions.outputs.current }}
+        run: |
+          branch="bot/openobserve-main-${LATEST:0:12}"
+          existing="$(gh pr list --head "$branch" --base main --state open --json url --jq '.[0].url // empty')"
+          if [ -n "$existing" ]; then
+            echo "Update PR already exists: $existing"
+            exit 0
+          fi
+          gh pr create \
+            --draft \
+            --base main \
+            --head "$branch" \
+            --title "chore: sync OpenObserve main ${CURRENT:0:12} to ${LATEST:0:12}" \
+            --body "Merges upstream main ${LATEST} into the Creator Signal OIDC overlay. CI must pass for both plain OSS and the oidc feature before this is promoted."

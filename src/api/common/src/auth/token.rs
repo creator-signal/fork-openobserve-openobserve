@@ -252,7 +252,15 @@ pub async fn token_validator(
     }
 }
 
-#[cfg(not(feature = "enterprise"))]
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+pub async fn token_validator(
+    req_data: &RequestData,
+    auth_info: &AuthExtractor,
+) -> Result<AuthValidationResult, AuthError> {
+    super::oidc::token_validator(req_data, auth_info).await
+}
+
+#[cfg(not(any(feature = "enterprise", feature = "oidc")))]
 pub async fn token_validator(
     _req_data: &RequestData,
     _token: &AuthExtractor,

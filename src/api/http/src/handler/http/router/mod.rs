@@ -654,11 +654,28 @@ pub fn basic_routes() -> Router {
 /// Create config routes
 #[cfg(not(feature = "enterprise"))]
 pub fn config_routes() -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/reload", get(status::config_reload))
         .route_layer(middleware::from_fn(auth_middleware))
         .route("/", get(status::zo_config))
-        .route("/logout", get(status::logout))
+        .route("/logout", get(status::logout));
+
+    #[cfg(feature = "oidc")]
+    let router = router
+        .route(
+            "/oidc/login",
+            get(openobserve_api_common::auth::oidc::login),
+        )
+        .route(
+            "/oidc/callback",
+            get(openobserve_api_common::auth::oidc::callback),
+        )
+        .route(
+            "/oidc/refresh",
+            get(openobserve_api_common::auth::oidc::refresh),
+        );
+
+    router
 }
 
 #[cfg(feature = "enterprise")]

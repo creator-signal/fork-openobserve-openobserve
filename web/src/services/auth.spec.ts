@@ -103,6 +103,20 @@ describe("Auth Service", () => {
     });
   });
 
+  describe("get_oidc_login", () => {
+    it("should fetch the OSS OIDC authorization URL", async () => {
+      const mockResponse = { data: "https://auth.example.com/oauth/v2/authorize" };
+      mockHttp.mockReturnValue({
+        get: vi.fn().mockResolvedValue(mockResponse)
+      } as any);
+
+      const result = await auth.get_oidc_login();
+
+      expect(mockHttp().get).toHaveBeenCalledWith("/config/oidc/login");
+      expect(result).toEqual(mockResponse.data);
+    });
+  });
+
   describe("refresh_token", () => {
     it("should refresh authentication token", async () => {
       const mockRefreshData = {
@@ -133,6 +147,17 @@ describe("Auth Service", () => {
 
       await expect(auth.refresh_token()).rejects.toThrow("Token expired");
       expect(mockHttp().get).toHaveBeenCalledWith("/config/dex_refresh");
+    });
+
+    it("should validate the local OIDC session through the OIDC endpoint", async () => {
+      const mockResponse = { status: 204, data: undefined };
+      mockHttp.mockReturnValue({
+        get: vi.fn().mockResolvedValue(mockResponse)
+      } as any);
+
+      await auth.refresh_token(true);
+
+      expect(mockHttp().get).toHaveBeenCalledWith("/config/oidc/refresh");
     });
   });
 

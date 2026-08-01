@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+.idea
+target
+node_modules
+web/node_modules
+web/dist
+**/*.log
+.env
+.env.*
+!.env.example

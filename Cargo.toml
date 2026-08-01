@@ -48,6 +48,11 @@ cloud = [
     "openobserve-core/cloud",
     "openobserve-jobs/cloud",
 ]
+oidc = [
+    "openobserve-api-common/oidc",
+    "openobserve-api-http/oidc",
+    "openobserve-api-management/oidc",
+]
 mimalloc = ["dep:mimalloc"]
 jemalloc = ["dep:tikv-jemallocator"]
 profiling = [
@@ -167,6 +172,7 @@ sea-orm.workspace = true
 segment.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sha256.workspace = true
 snafu.workspace = true
 snap.workspace = true
@@ -545,6 +551,7 @@ segment = "~0.2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha1 = "0.10.6"
+sha2 = "0.10"
 sha256 = "1.6"
 snafu = "0.9"
 snap = "1"

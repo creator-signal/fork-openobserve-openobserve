@@ -189,7 +189,11 @@ export default defineComponent({
     };
 
     const signout = () => {
-      if (config?.isEnterprise == "true" || config?.isCloud == "true") {
+      if (
+        config?.isEnterprise == "true" ||
+        config?.isCloud == "true" ||
+        store.state.zoConfig.oidc_enabled
+      ) {
         invalidateLoginData();
       }
 
@@ -311,7 +315,8 @@ export default defineComponent({
           if (
             (this.userInfo !== null &&
               Object.prototype.hasOwnProperty.call(this.userInfo, "pgdata")) ||
-            config.isEnterprise === "true"
+            config.isEnterprise === "true" ||
+            this.store.state.zoConfig.oidc_enabled
           ) {
             this.store.dispatch("login", {
               loginState: true,

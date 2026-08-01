@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+
+FROM public.ecr.aws/docker/library/node:24-trixie AS webbuilder
+WORKDIR /web
+COPY ./web/package.json ./web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY ./web /web/
+RUN NODE_OPTIONS="--max-old-space-size=8192" npm run build
+
+FROM public.ecr.aws/zinclabs/rust:trixie-sccache AS builder
+WORKDIR /openobserve
+COPY . /openobserve
+COPY --from=webbuilder /web/dist web/dist
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/openobserve/target,sharing=locked \
+    cargo build --release --features oidc,mimalloc --jobs 1 && \
+    cp target/release/openobserve /tmp/openobserve
+
+FROM public.ecr.aws/debian/debian:trixie-slim AS runtime
+ARG BUILD_VERSION=dev
+ARG BUILD_REVISION=unknown
+ARG SOURCE_REPOSITORY=https://github.com/openobserve/openobserve
+LABEL org.opencontainers.image.title="OpenObserve OSS with OIDC" \
+      org.opencontainers.image.description="OpenObserve OSS plus the Creator Signal OIDC authentication feature" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.revision="${BUILD_REVISION}"
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    update-ca-certificates
+COPY --from=builder /tmp/openobserve /openobserve
+RUN ["/openobserve", "init-dir", "-p", "/data/"]
+CMD ["/openobserve"]

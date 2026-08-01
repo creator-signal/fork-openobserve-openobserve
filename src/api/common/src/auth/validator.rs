@@ -555,6 +555,22 @@ pub async fn validate_credentials(
 
     // Enforce native login restrictions only for password-based authentication
     // (Token authentication has already been checked above)
+    #[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+    if get_config().oidc.enabled
+        && !get_config().oidc.native_login_enabled
+        && !is_root_user(user_id)
+    {
+        return Ok(TokenValidationResponse {
+            is_valid: false,
+            user_email: "".to_string(),
+            is_internal_user: false,
+            user_role: None,
+            user_name: "".to_string(),
+            family_name: "".to_string(),
+            given_name: "".to_string(),
+        });
+    }
+
     #[cfg(feature = "enterprise")]
     {
         if !get_dex_config().native_login_enabled && !user.is_external {

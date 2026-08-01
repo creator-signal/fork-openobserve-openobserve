@@ -224,7 +224,10 @@ export default defineComponent({
     });
 
     const showSSO = computed(() => {
-      return store.state.zoConfig.sso_enabled && config.isEnterprise === "true";
+      return (
+        store.state.zoConfig.sso_enabled &&
+        (config.isEnterprise === "true" || store.state.zoConfig.oidc_enabled)
+      );
     });
 
     const showInternalLogin = computed(() => {
@@ -233,7 +236,10 @@ export default defineComponent({
 
     const loginWithSSo = async () => {
       try {
-        authService.get_dex_login().then((res) => {
+        const getLoginUrl = store.state.zoConfig.oidc_enabled
+          ? authService.get_oidc_login
+          : authService.get_dex_login;
+        getLoginUrl().then((res) => {
           if (res) {
             window.location.href = res;
             return;

@@ -15,5 +15,7 @@
 
 pub mod action_server;
 pub mod jwt;
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+pub mod oidc;
 pub mod token;
 pub mod validator;
