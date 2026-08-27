@@ -81,6 +81,9 @@ pub mod openapi;
 
 use common::meta::http::ERROR_HEADER;
 
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+use self::middlewares::scoped_automation_middleware;
+
 /// Create CORS layer for axum
 pub fn cors_layer() -> CorsLayer {
     CorsLayer::new()
@@ -1304,8 +1307,11 @@ pub fn service_routes() -> Router {
     // header before tower_http sees it. This prevents 415 errors while allowing handlers to
     // manually decompress snappy data. tower_http's RequestDecompressionLayer handles gzip,
     // deflate, and brotli.
+    let router = router.layer(middleware::from_fn(blocked_orgs_middleware));
+    #[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+    let router = router.layer(middleware::from_fn(scoped_automation_middleware));
+
     router
-        .layer(middleware::from_fn(blocked_orgs_middleware))
         .layer(middleware::from_fn(audit_middleware))
         .layer(middleware::from_fn(auth_middleware))
         .layer(RequestDecompressionLayer::new())
