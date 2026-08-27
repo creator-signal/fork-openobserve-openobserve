@@ -366,11 +366,7 @@ mod tests {
 
     #[test]
     fn fixed_capabilities_reject_cross_scope_paths() {
-        for path in [
-            "default/v1/logs",
-            "default/v1/metrics",
-            "default/v1/traces",
-        ] {
+        for path in ["default/v1/logs", "default/v1/metrics", "default/v1/traces"] {
             assert!(operation_allowed(
                 Capability::Ingest,
                 path,
