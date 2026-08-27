@@ -37,13 +37,14 @@ jobs:
         run: cargo check --locked
       - name: Check OIDC build
         run: cargo check --locked --features oidc
-      - name: Test OIDC protocol helpers
+      - name: Test OIDC and scoped automation enforcement
         env:
           CARGO_BUILD_JOBS: 2
           CARGO_PROFILE_TEST_DEBUG: 0
-        run: >-
-          cargo test --locked -p openobserve-api-common --features oidc
-          auth::oidc::tests
+        run: |
+          cargo test --locked -p openobserve-api-common --features oidc auth::oidc::tests
+          cargo test --locked -p openobserve-api-common --features oidc auth::automation::tests
+          cargo test --locked -p openobserve-api-http --features oidc handler::http::router::middlewares::scoped_automation::tests
 
   web:
     name: Web login contract
