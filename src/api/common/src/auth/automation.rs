@@ -14,10 +14,8 @@
 use std::path::Path;
 
 use axum::http::Method;
-use config::{
-    get_config,
-    meta::user::{TokenValidationResponse, UserRole},
-};
+use common::meta::user::TokenValidationResponse;
+use config::{get_config, meta::user::UserRole};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
