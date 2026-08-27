@@ -41,10 +41,19 @@ jobs:
         env:
           CARGO_BUILD_JOBS: 2
           CARGO_PROFILE_TEST_DEBUG: 0
+          CARGO_TERM_COLOR: never
         run: |
-          cargo test --locked -p openobserve-api-common --features oidc auth::oidc::tests
-          cargo test --locked -p openobserve-api-common --features oidc auth::automation::tests
-          cargo test --locked -p openobserve-api-http --features oidc handler::http::router::middlewares::scoped_automation::tests
+          set -euo pipefail
+          run_tests() {
+            label="$1"
+            shift
+            log="$RUNNER_TEMP/${label}.log"
+            cargo test "$@" | tee "$log"
+            grep -Eq 'test result: ok\. [1-9][0-9]* passed' "$log"
+          }
+          run_tests oidc --locked -p openobserve-api-common --features oidc auth::oidc::tests
+          run_tests automation --locked -p openobserve-api-common --features oidc auth::automation::tests
+          run_tests middleware --locked -p openobserve-api-http --features oidc handler::http::router::middlewares::scoped_automation::tests
 
   web:
     name: Web login contract
