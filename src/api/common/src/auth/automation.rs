@@ -14,11 +14,14 @@
 use std::path::Path;
 
 use axum::http::Method;
-use config::{get_config, meta::user::UserRole};
+use config::{
+    get_config,
+    meta::user::{TokenValidationResponse, UserRole},
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::validator::{AuthError, TokenValidationResponse};
+use super::validator::AuthError;
 
 pub const INGEST_IDENTITY: &str = "creator-signal-ingest";
 pub const QUERY_IDENTITY: &str = "creator-signal-query";
