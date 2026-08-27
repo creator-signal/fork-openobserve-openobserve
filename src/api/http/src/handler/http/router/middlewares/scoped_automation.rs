@@ -8,7 +8,7 @@
 use axum::{
     body::{Body, Bytes, to_bytes},
     extract::Request,
-    http::{Method, StatusCode},
+    http::{Method, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -182,6 +182,57 @@ fn validate_dashboard_request(
         .any(|dashboard| dashboard.title == title && dashboard.body_sha256 == digest)
 }
 
+fn governed_dashboard_title(value: &Value, policy: &AutomationPolicy) -> bool {
+    let title = value
+        .get("title")
+        .or_else(|| value.get("v5").and_then(|dashboard| dashboard.get("title")))
+        .and_then(Value::as_str);
+    title.is_some_and(|title| {
+        policy
+            .dashboards
+            .iter()
+            .any(|dashboard| dashboard.title == title)
+    })
+}
+
+fn filter_dashboard_value(
+    mut value: Value,
+    list: bool,
+    policy: &AutomationPolicy,
+) -> Option<Value> {
+    if !list {
+        return governed_dashboard_title(&value, policy).then_some(value);
+    }
+    let dashboards = value.get_mut("dashboards")?.as_array_mut()?;
+    dashboards.retain(|dashboard| governed_dashboard_title(dashboard, policy));
+    Some(value)
+}
+
+async fn filter_dashboard_response(
+    response: Response,
+    list: bool,
+    policy: &AutomationPolicy,
+) -> Response {
+    if !response.status().is_success() {
+        return response;
+    }
+    let (mut parts, body) = response.into_parts();
+    let Ok(body) = to_bytes(body, MAX_DASHBOARD_BODY).await else {
+        return forbidden();
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&body) else {
+        return forbidden();
+    };
+    let Some(value) = filter_dashboard_value(value, list, policy) else {
+        return forbidden();
+    };
+    let Ok(body) = serde_json::to_vec(&value) else {
+        return forbidden();
+    };
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, Body::from(body))
+}
+
 async fn bounded_body(
     request: Request,
     limit: usize,
@@ -214,6 +265,8 @@ pub async fn scoped_automation_middleware(request: Request, next: Next) -> Respo
         Ok(value) => value,
         Err(response) => return response,
     };
+    let dashboard_get = identity == DASHBOARD_IDENTITY && parts.method == Method::GET;
+    let dashboard_list = dashboard_get && parts.uri.path().ends_with("/dashboards");
     let allowed = if identity == QUERY_IDENTITY {
         validate_query_request(&parts.uri, &parts.method, &body, &policy)
     } else {
@@ -222,7 +275,12 @@ pub async fn scoped_automation_middleware(request: Request, next: Next) -> Respo
     if !allowed {
         return forbidden();
     }
-    next.run(Request::from_parts(parts, Body::from(body))).await
+    let response = next.run(Request::from_parts(parts, Body::from(body))).await;
+    if dashboard_get {
+        filter_dashboard_response(response, dashboard_list, &policy).await
+    } else {
+        response
+    }
 }
 
 #[cfg(test)]
@@ -313,5 +371,31 @@ mod tests {
             &[],
             &policy
         ));
+    }
+
+    #[test]
+    fn dashboard_reads_return_only_governed_definitions() {
+        let body = br#"{"title":"Creator Signal 00 - Telemetry","version":5}"#;
+        let policy = policy(body);
+        let list = serde_json::json!({
+            "dashboards": [
+                { "title": "Creator Signal 00 - Telemetry", "dashboard_id": "governed" },
+                { "title": "Unrelated operator dashboard", "dashboard_id": "unrelated" }
+            ]
+        });
+        let filtered = filter_dashboard_value(list, true, &policy).unwrap();
+        assert_eq!(filtered["dashboards"].as_array().unwrap().len(), 1);
+        assert!(filter_dashboard_value(
+            serde_json::json!({ "title": "Unrelated operator dashboard" }),
+            false,
+            &policy,
+        )
+        .is_none());
+        assert!(filter_dashboard_value(
+            serde_json::json!({ "v5": { "title": "Creator Signal 00 - Telemetry" } }),
+            false,
+            &policy,
+        )
+        .is_some());
     }
 }
