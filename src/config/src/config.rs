@@ -748,6 +748,18 @@ pub struct Oidc {
     pub state_ttl: i64,
     #[env_config(name = "ZO_OIDC_INSECURE_ALLOW_HTTP", default = false)]
     pub insecure_allow_http: bool,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_ENABLED", default = false)]
+    pub automation_enabled: bool,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_ORG", default = "")]
+    pub automation_org: String,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_INGEST_TOKEN_FILE", default = "")]
+    pub automation_ingest_token_file: String,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_QUERY_TOKEN_FILE", default = "")]
+    pub automation_query_token_file: String,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE", default = "")]
+    pub automation_dashboard_token_file: String,
+    #[env_config(name = "ZO_OIDC_AUTOMATION_POLICY_FILE", default = "")]
+    pub automation_policy_file: String,
 }
 
 #[derive(Serialize, EnvConfig, Default)]

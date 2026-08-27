@@ -14,8 +14,11 @@ API credentials.
 
 OIDC is authentication and fixed-organization admission, not enterprise RBAC. Admitted users are
 OpenObserve `Admin` users in `ZO_OIDC_DEFAULT_ORG`, matching the authorization model available in
-the OSS build. Keep the required ZITADEL role narrow and use ingestion tokens, not interactive OIDC
-sessions, for collectors.
+the OSS build. Keep the required ZITADEL role narrow. The Creator Signal build additionally exposes
+three fixed, file-backed automation identities when explicitly enabled: OTLP ingestion only,
+bounded governed aggregate queries only, and governed dashboard reconciliation only. These are not
+general OSS users and cannot use interactive sessions, user administration, raw search, dashboard
+deletion, or a different organization.
 
 Existing native-login users cannot be silently linked. The first successful login records both
 email-to-subject and subject-to-email bindings, so subsequent logins are bound to `(issuer, sub)`
@@ -57,6 +60,21 @@ ZO_WEB_URL=https://observe.creatorsignal.me
 `ZO_OIDC_CLIENT_SECRET` is also supported, but production should mount a read-only secret file.
 Set only one secret source. HTTP issuer, redirect, and post-login URLs are rejected unless
 `ZO_OIDC_INSECURE_ALLOW_HTTP=true`; that exception is intended only for isolated local testing.
+
+Scoped automation is disabled by default. When enabled, all six settings below are required and
+fail closed. Credential files must be distinct, contain 32-256 non-whitespace characters, and live
+under `/run/secrets` or `/run/creator-signal-secrets`. The bounded policy is repository-owned and
+limits the exact query templates, time range, result size, dashboard titles, and dashboard request
+digests accepted by the middleware.
+
+```dotenv
+ZO_OIDC_AUTOMATION_ENABLED=true
+ZO_OIDC_AUTOMATION_ORG=default
+ZO_OIDC_AUTOMATION_INGEST_TOKEN_FILE=/run/secrets/openobserve-automation-ingest-token
+ZO_OIDC_AUTOMATION_QUERY_TOKEN_FILE=/run/secrets/openobserve-automation-query-token
+ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE=/run/secrets/openobserve-automation-dashboard-token
+ZO_OIDC_AUTOMATION_POLICY_FILE=/run/creator-signal/repository-configs/openobserve/automation-policy.json
+```
 
 Configure the ZITADEL web application with the exact redirect URI, Authorization Code + PKCE,
 project role assertion/check enabled, verified email claims, and the `platform:operator` project

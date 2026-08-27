@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod action_server;
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+pub mod automation;
 pub mod jwt;
 #[cfg(all(feature = "oidc", not(feature = "enterprise")))]
 pub mod oidc;

@@ -14,5 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod org_blocking;
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+mod scoped_automation;
 
 pub use org_blocking::blocked_orgs_middleware;
+#[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+pub use scoped_automation::scoped_automation_middleware;

@@ -249,6 +249,14 @@ pub async fn validate_credentials(
     method: &Method,
     from_session: bool,
 ) -> Result<TokenValidationResponse, AuthError> {
+    #[cfg(all(feature = "oidc", not(feature = "enterprise")))]
+    if let Some(result) =
+        super::automation::validate_automation_credentials(user_id, user_password, path, method)
+            .await
+    {
+        return result;
+    }
+
     // Strip leading slash if present
     let path = path.strip_prefix('/').unwrap_or(path);
     let mut path_columns = path.split('/').collect::<Vec<&str>>();

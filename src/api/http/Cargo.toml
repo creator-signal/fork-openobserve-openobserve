@@ -13,6 +13,7 @@ default = []
 oidc = [
     "openobserve-api-common/oidc",
     "openobserve-api-management/oidc",
+    "dep:sha2",
 ]
 enterprise = [
     "dep:o2_dex",
@@ -82,6 +83,7 @@ regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = { workspace = true, optional = true }
 time.workspace = true
 tokio.workspace = true
 url.workspace = true
