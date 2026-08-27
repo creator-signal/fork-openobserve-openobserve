@@ -114,7 +114,9 @@ fn secure_equal(left: &str, right: &str) -> bool {
     let right = Sha256::digest(right.as_bytes());
     left.iter()
         .zip(right.iter())
-        .fold(0_u8, |difference, (left, right)| difference | (left ^ right))
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
         == 0
 }
 
