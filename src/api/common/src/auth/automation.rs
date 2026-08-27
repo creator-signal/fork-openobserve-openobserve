@@ -396,6 +396,22 @@ mod tests {
             &Method::POST,
             "default"
         ));
+        for (method, path) in [
+            (Method::GET, "default/users"),
+            (Method::GET, "default/roles"),
+            (Method::GET, "default/tokens"),
+            (Method::PUT, "default/settings"),
+            (Method::POST, "default/v1/logs"),
+            (Method::DELETE, "default/dashboards/governed"),
+            (Method::POST, "other/dashboards"),
+        ] {
+            assert!(!operation_allowed(
+                Capability::Dashboard,
+                path,
+                &method,
+                "default"
+            ));
+        }
         assert!(!operation_allowed(
             Capability::Ingest,
             "default/_search",
