@@ -385,17 +385,21 @@ mod tests {
         });
         let filtered = filter_dashboard_value(list, true, &policy).unwrap();
         assert_eq!(filtered["dashboards"].as_array().unwrap().len(), 1);
-        assert!(filter_dashboard_value(
-            serde_json::json!({ "title": "Unrelated operator dashboard" }),
-            false,
-            &policy,
-        )
-        .is_none());
-        assert!(filter_dashboard_value(
-            serde_json::json!({ "v5": { "title": "Creator Signal 00 - Telemetry" } }),
-            false,
-            &policy,
-        )
-        .is_some());
+        assert!(
+            filter_dashboard_value(
+                serde_json::json!({ "title": "Unrelated operator dashboard" }),
+                false,
+                &policy,
+            )
+            .is_none()
+        );
+        assert!(
+            filter_dashboard_value(
+                serde_json::json!({ "v5": { "title": "Creator Signal 00 - Telemetry" } }),
+                false,
+                &policy,
+            )
+            .is_some()
+        );
     }
 }
