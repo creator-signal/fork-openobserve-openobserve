@@ -346,6 +346,46 @@ mod tests {
             &serde_json::to_vec(&unbounded).unwrap(),
             &policy
         ));
+
+        let mut oversized = serde_json::json!({
+            "query": {
+                "sql": format!("SELECT count(*) AS matches FROM \"default\" WHERE creator_signal_canary_id = '{}'", "a".repeat(32)),
+                "start_time": 1_000_000,
+                "end_time": 2_000_000,
+                "from": 0,
+                "size": 11
+            },
+            "search_type": "ui",
+            "timeout": 5
+        });
+        assert!(!validate_query_request(
+            &uri,
+            &Method::POST,
+            &serde_json::to_vec(&oversized).unwrap(),
+            &policy
+        ));
+        oversized["query"]["size"] = Value::from(10_u64);
+        oversized["query"]["sql"] = Value::String(format!(
+            "SELECT count(*) AS matches FROM \"unapproved\" WHERE creator_signal_canary_id = '{}'",
+            "a".repeat(32)
+        ));
+        assert!(!validate_query_request(
+            &uri,
+            &Method::POST,
+            &serde_json::to_vec(&oversized).unwrap(),
+            &policy
+        ));
+        oversized["query"]["sql"] = Value::String(format!(
+            "SELECT count(*) AS matches FROM \"default\" WHERE creator_signal_canary_id = '{}'",
+            "a".repeat(32)
+        ));
+        let wrong_signal = "/api/default/_search?type=metrics".parse().unwrap();
+        assert!(!validate_query_request(
+            &wrong_signal,
+            &Method::POST,
+            &serde_json::to_vec(&oversized).unwrap(),
+            &policy
+        ));
     }
 
     #[test]

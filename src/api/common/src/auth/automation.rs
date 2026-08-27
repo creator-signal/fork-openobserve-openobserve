@@ -366,42 +366,78 @@ mod tests {
 
     #[test]
     fn fixed_capabilities_reject_cross_scope_paths() {
+        for path in [
+            "default/v1/logs",
+            "default/v1/metrics",
+            "default/v1/traces",
+        ] {
+            assert!(operation_allowed(
+                Capability::Ingest,
+                path,
+                &Method::POST,
+                "default"
+            ));
+        }
+        for (method, path) in [
+            (Method::POST, "default/_search"),
+            (Method::GET, "default/dashboards"),
+            (Method::GET, "default/users"),
+            (Method::GET, "default/roles"),
+            (Method::GET, "default/tokens"),
+            (Method::PUT, "default/settings"),
+            (Method::POST, "other/v1/logs"),
+        ] {
+            assert!(!operation_allowed(
+                Capability::Ingest,
+                path,
+                &method,
+                "default"
+            ));
+        }
+
         assert!(operation_allowed(
             Capability::Query,
-            "default/_search",
-            &Method::POST,
-            "default"
-        ));
-        assert!(!operation_allowed(
-            Capability::Query,
-            "default/_bulk",
-            &Method::POST,
-            "default"
-        ));
-        assert!(operation_allowed(
-            Capability::Dashboard,
-            "default/dashboards",
-            &Method::POST,
-            "default"
-        ));
-        assert!(!operation_allowed(
-            Capability::Dashboard,
-            "default/users",
-            &Method::GET,
-            "default"
-        ));
-        assert!(!operation_allowed(
-            Capability::Dashboard,
             "default/_search",
             &Method::POST,
             "default"
         ));
         for (method, path) in [
+            (Method::POST, "default/v1/logs"),
+            (Method::GET, "default/dashboards"),
             (Method::GET, "default/users"),
             (Method::GET, "default/roles"),
             (Method::GET, "default/tokens"),
             (Method::PUT, "default/settings"),
+            (Method::POST, "other/_search"),
+        ] {
+            assert!(!operation_allowed(
+                Capability::Query,
+                path,
+                &method,
+                "default"
+            ));
+        }
+
+        for (method, path) in [
+            (Method::GET, "default/dashboards"),
+            (Method::POST, "default/dashboards"),
+            (Method::GET, "default/dashboards/governed"),
+            (Method::PUT, "default/dashboards/governed"),
+        ] {
+            assert!(operation_allowed(
+                Capability::Dashboard,
+                path,
+                &method,
+                "default"
+            ));
+        }
+        for (method, path) in [
+            (Method::POST, "default/_search"),
             (Method::POST, "default/v1/logs"),
+            (Method::GET, "default/users"),
+            (Method::GET, "default/roles"),
+            (Method::GET, "default/tokens"),
+            (Method::PUT, "default/settings"),
             (Method::DELETE, "default/dashboards/governed"),
             (Method::POST, "other/dashboards"),
         ] {
@@ -412,23 +448,5 @@ mod tests {
                 "default"
             ));
         }
-        assert!(!operation_allowed(
-            Capability::Ingest,
-            "default/_search",
-            &Method::POST,
-            "default"
-        ));
-        assert!(operation_allowed(
-            Capability::Ingest,
-            "default/v1/logs",
-            &Method::POST,
-            "default"
-        ));
-        assert!(!operation_allowed(
-            Capability::Ingest,
-            "default/_bulk",
-            &Method::POST,
-            "default"
-        ));
     }
 }
