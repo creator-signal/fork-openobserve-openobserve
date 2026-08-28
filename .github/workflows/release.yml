@@ -12,27 +12,27 @@ jobs:
       matrix:
         include:
           - arch: x86_64-unknown-linux-gnu
-            os: ubicloud-standard-8
+            os: ubuntu-latest
             features: "--features mimalloc"
             file_name: openobserve-${{ github.ref_name }}-linux-amd64
             file_ext: .tar.gz
           - arch: x86_64-unknown-linux-gnu
-            os: ubicloud-standard-8
+            os: ubuntu-latest
             features: "--features mimalloc"
             file_name: openobserve-${{ github.ref_name }}-linux-amd64-simd
             file_ext: .tar.gz
           - arch: x86_64-unknown-linux-musl
-            os: ubicloud-standard-8
+            os: ubuntu-latest
             features: "--features mimalloc"
             file_name: openobserve-${{ github.ref_name }}-linux-amd64-musl
             file_ext: .tar.gz
           - arch: aarch64-unknown-linux-musl
-            os: ubicloud-standard-16-arm
+            os: ubuntu-24.04-arm
             features: "--features mimalloc"
             file_name: openobserve-${{ github.ref_name }}-linux-arm64-musl
             file_ext: .tar.gz
           - arch: aarch64-unknown-linux-gnu
-            os: ubicloud-standard-16-arm
+            os: ubuntu-24.04-arm
             features: "--features mimalloc"
             file_name: openobserve-${{ github.ref_name }}-linux-arm64
             file_ext: .tar.gz
@@ -47,7 +47,7 @@ jobs:
             file_name: openobserve-${{ github.ref_name }}-darwin-arm64
             file_ext: .tar.gz
           - arch: x86_64-pc-windows-msvc
-            os: windows-2022-16-cores
+            os: windows-latest
             features: ""
             file_name: openobserve-${{ github.ref_name }}-windows-amd64
             file_ext: .zip
@@ -170,7 +170,7 @@ jobs:
   release:
     name: Release artifacts
     needs: [build]
-    runs-on: eks-openobserve-standard-4
+    runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: write

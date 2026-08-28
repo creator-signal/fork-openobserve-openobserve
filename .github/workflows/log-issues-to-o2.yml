@@ -8,6 +8,7 @@ on:
 
 jobs:
   capture:
+    if: vars.ENABLE_OPENOBSERVE_ISSUE_TELEMETRY == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,4 +22,3 @@ jobs:
             -H "Authorization: Basic ${{ secrets.OO_CLOUD_AUTH }}" \
             -H "Content-Type: application/json" \
             -d "$GITHUB_EVENT_JSON"
-

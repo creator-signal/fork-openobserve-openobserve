@@ -48,8 +48,7 @@ jobs:
   backend_static_checks:
     needs: [check_changes]
     if: needs.check_changes.outputs.has_backend_changes == 'true'
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -88,8 +87,7 @@ jobs:
   backend_unit_tests_postgres:
     needs: [check_changes]
     if: needs.check_changes.outputs.has_backend_changes == 'true'
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
@@ -158,8 +156,7 @@ jobs:
   backend_unit_tests_sqlite:
     needs: [check_changes]
     if: needs.check_changes.outputs.has_backend_changes == 'true'
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
@@ -230,8 +227,7 @@ jobs:
   ui_unit_tests:
     needs: [check_changes]
     if: needs.check_changes.outputs.has_ui_changes == 'true'
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
@@ -259,8 +255,7 @@ jobs:
   ui_code_quality:
     needs: [check_changes]
     if: needs.check_changes.outputs.has_ui_changes == 'true'
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 

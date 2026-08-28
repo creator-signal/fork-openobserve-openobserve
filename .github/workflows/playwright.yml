@@ -94,8 +94,7 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'e2e')) ||
       (github.event_name != 'pull_request' &&
        needs.check_changes.outputs.has_changes == 'true')
-    runs-on:
-      labels: ubicloud-standard-16
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
@@ -181,8 +180,7 @@ jobs:
     name: e2e / ${{ matrix.testfolder }}
     needs: [build_binary]
     if: ${{ !cancelled() && needs.build_binary.result == 'success' }}
-    runs-on:
-      labels: eks-openobserve-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
@@ -678,12 +676,9 @@ jobs:
     name: Merge Reports & Report to Kinora
     needs: [ui_integration_tests]
     if: ${{ !cancelled() && needs.ui_integration_tests.result != 'skipped' }}
-    # eks runner: `playwright merge-reports` silently stops mid-merge (exits 0, ~3 of N blobs, no
-    # output) on the ubicloud and github-hosted runners — but works on the eks runners (same as ENT).
-    # This job also uploads the merged run to the self-hosted Kinora dashboard (see the last two
+    # This job also uploads the merged run to the Kinora dashboard (see the last two
     # steps) — folded in here to reuse the merge instead of re-downloading/re-merging in a 2nd job.
-    runs-on:
-      labels: eks-openobserve-standard-4
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read          # the no-blobs investigation reads run/job state from the Actions API
@@ -906,8 +901,7 @@ jobs:
     name: Report to OpenObserve
     needs: [ui_integration_tests, merge_reports]
     if: ${{ !cancelled() && needs.ui_integration_tests.result != 'skipped' }}
-    runs-on:
-      labels: eks-openobserve-standard-4
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read  # reads run/job timings from the Actions API
@@ -958,8 +952,7 @@ jobs:
 
   playwright_summary:
     timeout-minutes: 5
-    runs-on:
-      labels: eks-openobserve-standard-4
+    runs-on: ubuntu-latest
     permissions: {}
     needs:
       [

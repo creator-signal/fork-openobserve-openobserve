@@ -13,8 +13,7 @@ permissions:
 jobs:
   update-dependencies:
     name: Update NPM Dependencies
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
 
     steps:
       - name: Clone the current repo

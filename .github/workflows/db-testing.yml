@@ -51,7 +51,7 @@ jobs:
     name: db_validation_tests
     needs: [check_changes]
     if: needs.check_changes.outputs.has_changes == 'true'
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 

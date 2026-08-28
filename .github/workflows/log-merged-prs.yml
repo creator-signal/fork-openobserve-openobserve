@@ -6,7 +6,7 @@ on:
 
 jobs:
   log_to_sheet:
-    if: github.event.pull_request.merged == true
+    if: vars.ENABLE_PR_LOG_SHEET == 'true' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: read

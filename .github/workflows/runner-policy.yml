@@ -1,0 +1,26 @@
+name: Public runner policy
+
+on:
+  pull_request:
+    paths:
+      - ".github/scripts/verify-public-runners.mjs"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/scripts/verify-public-runners.mjs"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v5
+      - name: Reject non-public runner labels
+        run: node .github/scripts/verify-public-runners.mjs
