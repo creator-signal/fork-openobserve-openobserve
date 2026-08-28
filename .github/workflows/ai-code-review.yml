@@ -17,6 +17,7 @@ on:
 
 jobs:
   review:
+    if: vars.ENABLE_AI_CODE_REVIEW == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Concurrency is per-job (not workflow-level) so it can see `matrix`: keyed per-PR AND

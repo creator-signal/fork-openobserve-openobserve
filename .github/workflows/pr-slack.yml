@@ -8,6 +8,7 @@ on:
 
 jobs:
   notify:
+    if: vars.ENABLE_STALE_PR_SLACK == 'true'
     runs-on: ubuntu-latest
 
     steps:

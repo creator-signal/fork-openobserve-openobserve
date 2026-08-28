@@ -18,7 +18,7 @@ env:
 jobs:
   build_frontend:
     name: build_frontend
-    runs-on: ubicloud-standard-4
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -86,7 +86,7 @@ jobs:
       id-token: write
       contents: read
       packages: write
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     steps:
       - name: Remove unused tools
         run: |
@@ -175,7 +175,7 @@ jobs:
       id-token: write
       contents: read
       packages: write
-    runs-on: "ubicloud-standard-16-arm"
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Remove unused tools
         run: |
@@ -260,7 +260,7 @@ jobs:
   build:
     needs: [build_pr_image_amd64, build_pr_image_arm64, build_frontend]
     if: ${{ needs.build_pr_image_amd64.result == 'success' && needs.build_pr_image_arm64.result == 'success' }}
-    runs-on: ubicloud-standard-16-arm
+    runs-on: ubuntu-24.04-arm
     permissions:
       id-token: write
       contents: read

@@ -22,8 +22,7 @@ concurrency:
 jobs:
   update-sbom:
     name: Regenerate SBOMs
-    runs-on:
-      labels: ubicloud-standard-8
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:

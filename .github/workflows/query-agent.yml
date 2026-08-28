@@ -60,7 +60,7 @@ jobs:
   # Validate workflow_dispatch inputs before forwarding to the engine.
   # Skipped for issue_comment events (no inputs to validate).
   validate_inputs:
-    if: github.event_name == 'workflow_dispatch'
+    if: vars.ENABLE_QUERY_AGENT == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Validate pr_number is a positive integer
@@ -77,10 +77,11 @@ jobs:
     # Manual dispatch: always run (restricted to repo write access by GitHub).
     # Comment: only if the commenter is on the allowlist AND the command matches.
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.issue.pull_request &&
-       contains(fromJSON('["/query-agent","/qa-generate"]'), github.event.comment.body) &&
-       contains(fromJSON('["bjp232004","hengfeiyang","prabhatsharma","uddhavdave","oasisk","haohuaijin","Subhra264","Loaki07","007harshmahajan","chaitanya-sistla","ktx-kirtan","omkarK06","ktx-vaidehi","ktx-abhay","neha00290","ktx-akshay","ktx-sadhna","nikhilsaikethe","YashodhanJoshi1","ktx-riya","mmosarafO2","Shrinath-O2","ktx-mihir","vamsikarthikr"]'), github.actor))
+      vars.ENABLE_QUERY_AGENT == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.issue.pull_request &&
+        contains(fromJSON('["/query-agent","/qa-generate"]'), github.event.comment.body) &&
+        contains(fromJSON('["bjp232004","hengfeiyang","prabhatsharma","uddhavdave","oasisk","haohuaijin","Subhra264","Loaki07","007harshmahajan","chaitanya-sistla","ktx-kirtan","omkarK06","ktx-vaidehi","ktx-abhay","neha00290","ktx-akshay","ktx-sadhna","nikhilsaikethe","YashodhanJoshi1","ktx-riya","mmosarafO2","Shrinath-O2","ktx-mihir","vamsikarthikr"]'), github.actor)))
     uses: openobserve/o2-enterprise/.github/workflows/query-agent.yml@cb74bab8b9da410f525f7931a9396ec8cd885665
     with:
       source_repo: openobserve
