@@ -106,6 +106,13 @@ jobs:
           - 5432:5432
         options: --health-cmd "pg_isready -U postgres" --health-interval 10s --health-timeout 5s --health-retries 10
     steps:
+      - name: Remove unused tools
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
       - name: Clone the current repo
         uses: actions/checkout@v5
         with:
@@ -165,6 +172,13 @@ jobs:
       ZO_META_STORE: sqlite
       ZO_META_POSTGRES_DSN: ""
     steps:
+      - name: Remove unused tools
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
       - name: Clone the current repo
         uses: actions/checkout@v5
         with:
