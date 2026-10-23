@@ -9,6 +9,7 @@ import pytest
 @pytest.mark.parametrize(
     "data_type",
     ["\x00", "\x12", "\x7f", "\r\nX-Injected: true", "\u2603", "unknown" * 2048],
+    ids=["nul", "control", "del", "crlf", "unicode", "oversized"],
 )
 def test_invalid_type_does_not_corrupt_error_header(create_session, base_url, data_type):
     session = create_session
@@ -22,8 +23,10 @@ def test_invalid_type_does_not_corrupt_error_header(create_session, base_url, da
             json={"fields": [{"name": "value", "type": data_type}], "settings": {}},
         )
         assert response.status_code == 400
-        assert response.headers["X-Error-Message"] == "invalid data type"
+        # The audit middleware consumes this internal header before transmission.
+        assert "X-Error-Message" not in response.headers
         assert "X-Injected" not in response.headers
+        assert response.json()["code"] == 400
         assert response.json()["message"] == f"invalid data type: {data_type}"
         assert session.get(f"{url}/schema").status_code == 404
     finally:
