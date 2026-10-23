@@ -5,10 +5,10 @@
 // README, or CDN lookup failed — the committed pin is always a valid answer.
 //
 // CDN path (script tags served from browsersdk.openobserve.ai):
-//   1. Latest version published in the browser-sdk repo README — the source
+//   1. Committed sample pin by default; explicit RUM_SDK_VERSION overrides it.
+//   2. With RUM_SDK_TRACK_LATEST=true, the version published in the SDK README:
 //      of truth for CDN releases (the CDN itself has no "latest" alias):
 //      https://github.com/openobserve/browser-sdk/blob/openobserve/README.md
-//   2. RUM_SDK_VERSION env var — manual override / offline fallback.
 //   Every candidate is PROBED against the live CDN before being accepted; an
 //   unprovisioned/unreachable candidate falls back to the version pinned in
 //   the committed sample HTML (fixtures/rum/cdn-sample), and finally to null
@@ -62,16 +62,19 @@ function pinnedCdnSdkVersion() {
 }
 
 /**
- * Probe the CDN for a candidate version: the main rum bundle must answer 2xx.
+ * Probe both CDN bundles: a RUM-only release cannot initialize the Logs fixture.
  * @returns {Promise<boolean>}
  */
 async function cdnServesVersion(page, version) {
   try {
-    const res = await page.request.get(
-      `https://browsersdk.openobserve.ai/${version}/openobserve-rum.js`,
-      { timeout: 15000 },
-    );
-    return res.ok();
+    for (const bundle of ['rum', 'logs']) {
+      const res = await page.request.get(
+        `https://browsersdk.openobserve.ai/${version}/openobserve-${bundle}.js`,
+        { timeout: 15000 },
+      );
+      if (!res.ok()) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -106,10 +109,15 @@ async function readmeLatestVersion(page) {
 async function resolveCdnSdkVersion(page) {
   const pinned = pinnedCdnSdkVersion();
   const candidates = [];
-  const readmeLatest = await readmeLatestVersion(page);
-  if (readmeLatest) candidates.push({ version: readmeLatest, source: 'browser-sdk README' });
   if (process.env.RUM_SDK_VERSION) {
     candidates.push({ version: process.env.RUM_SDK_VERSION, source: 'RUM_SDK_VERSION env' });
+  }
+  // A remote README is mutable and can select a new SDK API without a source
+  // change. Qualify the committed sample by default; explicit tracking remains
+  // available to detect upstream drift (as with the NPM fixture).
+  if (process.env.RUM_SDK_TRACK_LATEST === 'true') {
+    const readmeLatest = await readmeLatestVersion(page);
+    if (readmeLatest) candidates.push({ version: readmeLatest, source: 'browser-sdk README' });
   }
 
   for (const { version, source } of candidates) {

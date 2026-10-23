@@ -101,6 +101,8 @@ pub async fn process_zip(
 
     // first filter out the js and .map files from teh archive
     for name in archive.file_names() {
+        let name = name?;
+        let name = name.as_ref();
         if name.ends_with(".js") {
             let (_, file_name) = name.rsplit_once("/").unwrap_or(("", name));
             minified.insert(file_name.to_string());

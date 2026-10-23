@@ -1,5 +1,9 @@
 name: Creator Signal OIDC CI
 
+concurrency:
+  group: creator-signal-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
   push:
@@ -88,6 +92,8 @@ jobs:
           services/auth.spec.ts
           services/http.spec.ts
           views/Login.spec.ts
+      - name: Test deterministic RUM SDK selection
+        run: node --test ../tests/ui-testing/playwright-tests/utils/rum-sdk-version.test.cjs
 
   container:
     name: Container definition
