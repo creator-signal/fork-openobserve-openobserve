@@ -1,6 +1,8 @@
-use super::*;
 use std::sync::Mutex;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use super::*;
 
 struct Fixture {
     settings: Settings,
@@ -15,6 +17,9 @@ struct State {
     oversized: bool,
     logins: usize,
     reads: usize,
+    requests: usize,
+    revokes: usize,
+    slow_revoke: bool,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -91,6 +96,9 @@ impl Fixture {
             oversized: false,
             logins: 0,
             reads: 0,
+            requests: 0,
+            revokes: 0,
+            slow_revoke: false,
         }));
         let shared = state.clone();
         let task = tokio::spawn(async move {
@@ -138,9 +146,13 @@ impl Fixture {
                         .unwrap_or("");
                     let (status, body) = {
                         let mut state = shared.lock().unwrap();
+                        state.requests += 1;
                         let generation = state.generation;
                         if state.denied {
                             (403, "{\"errors\":[\"do-not-log-response-secret\"]}".into())
+                        } else if route == "/v1/auth/token/revoke-self" {
+                            state.revokes += 1;
+                            (204, String::new())
                         } else if route == "/v1/auth/cert/login"
                             || route == "/v1/auth/token/renew-self"
                         {
@@ -187,6 +199,22 @@ impl Fixture {
                             }
                         }
                     };
+                    let body = if route.starts_with("/v1/kv/data/") {
+                        match serde_json::from_str::<serde_json::Value>(&body) {
+                            Ok(mut value) if value["data"].is_object() => {
+                                value["data"]["metadata"] = serde_json::json!({"version": shared.lock().unwrap().generation});
+                                value.to_string()
+                            }
+                            _ => body,
+                        }
+                    } else {
+                        body
+                    };
+                    let slow_revoke =
+                        route == "/v1/auth/token/revoke-self" && shared.lock().unwrap().slow_revoke;
+                    if slow_revoke {
+                        tokio::time::sleep(Duration::from_secs(7)).await;
+                    }
                     let response = format!(
                         "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
                         body.len()
@@ -281,6 +309,7 @@ async fn outage_has_bounded_last_good_state_and_cold_start_fails_closed() {
         *stored = Some(Arc::new(Snapshot {
             values: snapshot.values.clone(),
             obtained: Instant::now() - Duration::from_secs(11),
+            versions: snapshot.versions,
         }));
     }
     assert!(matches!(provider.current(), Err(Error::Unavailable)));
@@ -297,8 +326,14 @@ async fn expired_session_renews_and_bootstrap_pair_is_reread() {
     let fixture = Fixture::new().await;
     let provider = Provider::new(fixture.settings.clone()).unwrap();
     provider.refresh().await.unwrap();
-    provider.session.lock().await.as_mut().unwrap().expires =
-        Instant::now() + Duration::from_secs(1);
+    {
+        let session = provider.session.lock().await;
+        let session = session.as_ref().unwrap();
+        assert!(session.renew_at.duration_since(Instant::now()) > Duration::from_secs(2390));
+        assert!(session.renew_at.duration_since(Instant::now()) <= Duration::from_secs(2400));
+        assert!(session.expires > session.renew_at);
+    }
+    provider.session.lock().await.as_mut().unwrap().renew_at = Instant::now();
     provider.refresh().await.unwrap();
     assert_eq!(fixture.state.lock().unwrap().logins, 2);
     let key = std::fs::read(&fixture.settings.key_file).unwrap();
@@ -306,6 +341,67 @@ async fn expired_session_renews_and_bootstrap_pair_is_reread() {
     assert_eq!(provider.refresh().await, Err(Error::Configuration));
     std::fs::write(&fixture.settings.key_file, key).unwrap();
     provider.refresh().await.unwrap();
+}
+
+#[tokio::test]
+async fn consumer_signal_is_debounced_refreshes_without_restart_and_revokes_on_shutdown() {
+    let fixture = Fixture::new().await;
+    let provider = Arc::new(Provider::new(fixture.settings.clone()).unwrap());
+    provider.refresh().await.unwrap();
+    provider.start().await;
+    fixture.state.lock().unwrap().generation = 2;
+    assert!(provider.trigger_auth_refresh());
+    assert!(!provider.trigger_auth_refresh());
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while provider.current().unwrap().get("client_secret").unwrap() != "oidc-secret-2" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(provider.lifecycle().auth_refreshes, 1);
+    assert_eq!(provider.lifecycle().rotations, 1);
+    assert!(provider.lifecycle().last_success > 0);
+    let metrics = provider.metrics();
+    assert!(metrics.contains("zo_openbao_snapshot_age_seconds"));
+    assert!(metrics.contains("zo_openbao_ready 1"));
+    assert!(!metrics.contains("oidc-secret"));
+    assert!(!metrics.contains("fixture-session"));
+    provider.shutdown().await.unwrap();
+    assert_eq!(fixture.state.lock().unwrap().revokes, 1);
+    assert!(provider.current().is_err());
+    assert!(!provider.trigger_auth_refresh());
+    assert!(provider.metrics().contains("zo_openbao_ready 0"));
+    provider.shutdown().await.unwrap();
+    assert_eq!(fixture.state.lock().unwrap().revokes, 1);
+}
+
+#[tokio::test]
+async fn failures_back_off_cannot_be_bypassed_by_auth_signals_and_recover() {
+    let fixture = Fixture::new().await;
+    let provider = Arc::new(Provider::new(fixture.settings.clone()).unwrap());
+    provider.refresh().await.unwrap();
+    fixture.state.lock().unwrap().denied = true;
+    assert!(provider.refresh().await.is_err());
+    assert_eq!(provider.lifecycle().consecutive_failures, 1);
+    assert_eq!(provider.lifecycle().refresh_failures, 1);
+    assert!(!provider.trigger_auth_refresh());
+    assert!(provider.delay().await > Duration::from_secs(4));
+    provider.start().await;
+    let requests = fixture.state.lock().unwrap().requests;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(fixture.state.lock().unwrap().requests, requests);
+    fixture.state.lock().unwrap().denied = false;
+    provider.refresh().await.unwrap();
+    assert_eq!(provider.lifecycle().consecutive_failures, 0);
+    assert_eq!(provider.lifecycle().refresh_failures, 1);
+    assert!(provider.current().is_ok());
+    provider.shutdown().await.unwrap();
+    for failures in 1..100 {
+        let delay = retry_delay(failures);
+        assert!(delay >= Duration::from_secs(5));
+        assert!(delay <= Duration::from_secs(300));
+    }
 }
 
 #[tokio::test]
@@ -387,6 +483,8 @@ fn environment_sources_fail_closed() {
         "ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE",
         "ZO_S3_PROVIDER",
         "ZO_S3_ACCOUNTS",
+        "ZO_OPENBAO_REFRESH_SECS",
+        "ZO_OPENBAO_MAX_STALENESS_SECS",
     ] {
         let bootstrap = std::env::temp_dir().join("synthetic-bootstrap.pem");
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
@@ -420,8 +518,24 @@ fn environment_source_child() {
         return;
     };
     if case == "valid" {
-        assert!(Settings::from_env().unwrap().is_some());
+        let settings = Settings::from_env().unwrap().unwrap();
+        assert_eq!(settings.refresh, Duration::from_secs(60));
+        assert_eq!(settings.max_stale, Duration::from_secs(300));
     } else {
         assert!(matches!(Settings::from_env(), Err(Error::Configuration)));
     }
+}
+
+#[tokio::test]
+async fn shutdown_is_bounded_even_when_revoke_endpoint_hangs() {
+    let fixture = Fixture::new().await;
+    let provider = Arc::new(Provider::new(fixture.settings.clone()).unwrap());
+    provider.refresh().await.unwrap();
+    provider.start().await;
+    fixture.state.lock().unwrap().slow_revoke = true;
+    let started = Instant::now();
+    assert_eq!(provider.shutdown().await, Err(Error::Transport));
+    assert!(started.elapsed() < Duration::from_secs(6));
+    assert!(provider.current().is_err());
+    assert!(provider.session.lock().await.is_none());
 }

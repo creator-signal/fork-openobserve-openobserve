@@ -29,6 +29,8 @@ type fixture struct {
 	generation                       int
 	deny, broad, oversized, redirect bool
 	logins, reads, certs             int
+	revokes                          int
+	slowRevoke                       bool
 	cfg                              Config
 	server                           *httptest.Server
 }
@@ -113,6 +115,19 @@ func makeFixture(t *testing.T, endpoint string) *fixture {
 			w.WriteHeader(403)
 			return
 		}
+		if r.URL.Path == "/v1/auth/token/revoke-self" {
+			if r.Method != http.MethodPost {
+				w.WriteHeader(405)
+				return
+			}
+			f.revokes++
+			if f.slowRevoke {
+				time.Sleep(7 * time.Second)
+				return
+			}
+			w.WriteHeader(204)
+			return
+		}
 		if r.URL.Path != "/v1/kv/data/observability/collector" {
 			t.Error("unexpected record scope")
 			w.WriteHeader(404)
@@ -127,7 +142,7 @@ func makeFixture(t *testing.T, endpoint string) *fixture {
 		if f.broad {
 			fields["root_password"] = "must-not-accept-broad-record"
 		}
-		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": fields}})
+		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": fields, "metadata": map[string]any{"version": f.generation}}})
 	}))
 	server.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots}
 	server.StartTLS()
@@ -315,6 +330,7 @@ func TestRenewalRevokedSessionAndCertificateReload(t *testing.T) {
 	}
 	a.mu.Lock()
 	a.state.session.expires = time.Now().Add(time.Second)
+	a.state.session.renewAt = time.Now()
 	a.mu.Unlock()
 	if err := a.refresh(context.Background()); err != nil {
 		t.Fatal(err)

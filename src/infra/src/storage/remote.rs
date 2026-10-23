@@ -27,6 +27,9 @@ use object_store::{
 
 use crate::storage::CONCURRENT_REQUESTS;
 
+#[path = "openbao_transport.rs"]
+mod openbao_transport;
+
 // test only
 const TEST_FILE: &str = "o2_test/check.txt";
 
@@ -259,6 +262,7 @@ fn init_aws_config(config: StorageConfig) -> object_store::Result<object_store::
     }
     if config::openbao::enabled() {
         builder = builder.with_credentials(std::sync::Arc::new(OpenBaoCredentials));
+        builder = builder.with_http_connector(openbao_transport::AuthRefreshConnector);
     } else if !config.access_key.is_empty() {
         builder = builder.with_access_key_id(&config.access_key);
     }

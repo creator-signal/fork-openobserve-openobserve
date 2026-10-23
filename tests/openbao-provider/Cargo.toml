@@ -17,6 +17,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", 
 zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+async-trait = "0.1"
+http-body-util = "0.1"
+object_store = { git = "https://github.com/openobserve/arrow-rs-object-store", rev = "01c97b4d3f7857a1af87f0b66b68d329d3ccd9fd", default-features = false, features = ["aws"] }
 rcgen = "0.14"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

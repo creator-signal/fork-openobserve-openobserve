@@ -1,6 +1,25 @@
 <p align="center">
   <a href="https://openobserve.ai"><img src="https://openobserve.ai/img/logo/o2-logo-readme.svg" alt="OpenObserve"></a>
 </p>
+
+Creator Signal downstream: [OIDC, scoped automation and native OpenBao configuration](CREATOR_SIGNAL_OIDC.md).
+OpenBao delivery is opt-in, polls KV v2 data every 60 seconds and defaults to a separate
+five-minute credential freshness limit. See the linked setting and workload policy reference
+before enabling it; source changes do not deploy or provision identities.
+
+| Setting | Meaning / default |
+| --- | --- |
+| `ZO_OPENBAO_ENABLED` | Opt in with `true`; default `false` |
+| `ZO_OPENBAO_ADDRESS` | Required HTTPS OpenBao origin |
+| `ZO_OPENBAO_CERT_ROLE` | Required exact application certificate role |
+| `ZO_OPENBAO_CA_FILE` | Required absolute trusted CA file |
+| `ZO_OPENBAO_CERT_FILE` | Required absolute client certificate file |
+| `ZO_OPENBAO_KEY_FILE` | Required absolute client private-key file |
+| `ZO_OPENBAO_RUNTIME_PATH` | Required runtime KV v2 data API path |
+| `ZO_OPENBAO_OIDC_PATH` | Required OIDC KV v2 data API path |
+| `ZO_OPENBAO_STORAGE_PATH` | Required storage KV v2 data API path |
+| `ZO_OPENBAO_REFRESH_SECS` | Data poll seconds; default 60, range 5–300 |
+| `ZO_OPENBAO_MAX_STALENESS_SECS` | Freshness seconds; default 300, at least poll interval, maximum 900 |
 <p align="center">
     <em>Open source Datadog alternative for logs, metrics, traces, and frontend monitoring. Modern observability platform: 10x easier, 140x lower storage cost, high performance, petabyte scale.</em>
 </p>

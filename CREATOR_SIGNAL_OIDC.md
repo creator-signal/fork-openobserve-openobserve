@@ -132,11 +132,50 @@ ZO_OPENBAO_KEY_FILE=/run/bootstrap/client-key.pem
 ZO_OPENBAO_RUNTIME_PATH=kv/data/example/openobserve/runtime
 ZO_OPENBAO_OIDC_PATH=kv/data/example/openobserve/oidc
 ZO_OPENBAO_STORAGE_PATH=kv/data/example/openobserve/storage
+ZO_OPENBAO_REFRESH_SECS=60
+ZO_OPENBAO_MAX_STALENESS_SECS=300
 ```
 
 These are examples, not production paths or newly authorized identities. The existing governed
 certificate producer owns renewal and atomic replacement. Configure its role to read only the
-three selected KV v2 records and renew its own bounded token. No root OpenBao token is needed.
+three selected KV v2 records, renew its own bounded token and revoke it on exit. No root OpenBao token is needed.
+
+Every `ZO_OPENBAO_*` setting is listed above: `ENABLED` selects API mode (default false);
+`ADDRESS` is an HTTPS origin; `CERT_ROLE` is the exact certificate-role name; `CA_FILE`,
+`CERT_FILE` and `KEY_FILE` are absolute bootstrap file paths; `RUNTIME_PATH`, `OIDC_PATH`
+and `STORAGE_PATH` are exact KV v2 **data API** paths. The two optional duration settings
+are seconds: refresh defaults to 60 (allowed 5–300), maximum staleness defaults to 300
+(at least refresh and at most 900). Staleness is independent of the authentication token TTL.
+Restart to change provider settings; replacing the certificate/key pair is picked up at refresh.
+
+Use distinct application and collector certificates with pinned `allowed_common_names` and
+distinct exact role names (`openobserve` and `observe-collector` in these examples). Proposed
+role lifetimes are `token_ttl=1h`, `token_max_ttl=4h`; neither has been set or verified on a live
+role by this PR. Confirm the actual source addresses seen by OpenBao before setting
+`token_bound_cidrs`; do not copy guessed host/container CIDRs. Ensure the default policy adds
+no broader permissions (use `token_no_default_policy=true` with the explicit self operations).
+These are consumer-automation prerequisites, not provisioning instructions or deployment authority.
+
+The application's example policy is exactly:
+
+```hcl
+path "kv/data/example/openobserve/runtime" { capabilities = ["read"] }
+path "kv/data/example/openobserve/oidc" { capabilities = ["read"] }
+path "kv/data/example/openobserve/storage" { capabilities = ["read"] }
+path "auth/token/renew-self" { capabilities = ["update"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
+```
+
+The collector's separate policy is exactly:
+
+```hcl
+path "kv/data/observability/collector" { capabilities = ["read"] }
+path "auth/token/renew-self" { capabilities = ["update"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
+```
+
+Substitute only the governed deployment's exact data paths. Neither role needs `list`,
+`/metadata/` access, wildcard data access, other workloads' identities or policy-management access.
 
 | Record | Required string fields |
 | --- | --- |
@@ -156,6 +195,38 @@ session once, and re-reads the certificate pair on refresh. Existing credentials
 at most five minutes after the last complete fetch. Beyond that, credential consumers fail and
 health GET/HEAD return 503. Cold start without valid credentials fails. Response bodies are bounded
 to 64 KiB, redirects are denied and errors omit upstream payloads.
+
+Both providers renew/re-authenticate at approximately two-thirds of the returned token TTL,
+independently of the data-poll timer. Every data read validates the KV v2 version metadata;
+version changes count rotations, and even unchanged successful reads refresh the freshness
+deadline. Snapshot replacement still requires the complete valid record set. Poll failures retain
+the last good snapshot only within the configured freshness window and retry with exponential
+backoff and jitter: initially 5–10 seconds, capped at 150–300 seconds. Auth-failure signals
+cannot bypass an outage retry deadline and are debounced for five seconds.
+
+At the S3 HTTP response boundary, 401 and recognized credential-related 403 error codes
+(`InvalidAccessKeyId`, `SignatureDoesNotMatch`, `ExpiredToken`, `InvalidToken`,
+`TokenRefreshRequired`) schedule refresh. Generic S3 `AccessDenied` does not. The observer
+examines at most 64 KiB while forwarding original response frames unchanged. At the OIDC
+client-authenticated token endpoint, 401/403 schedule refresh; discovery/userinfo failures do
+not. These hooks never replay an S3 operation or authorization code. Collector ingestion 401/403
+also schedules refresh and returns the original response. Existing exporter retries remain its
+own explicitly configured policy.
+
+Application `/metrics` exports `zo_openbao_last_success_timestamp_seconds`,
+`zo_openbao_consecutive_failures`, `zo_openbao_refresh_failures_total`,
+`zo_openbao_auth_refreshes_total`, `zo_openbao_rotations_total`,
+`zo_openbao_snapshot_age_seconds` and `zo_openbao_ready` without secret/path/role labels.
+The collector registers equivalent OpenTelemetry instruments under the `openbao_` prefix
+(observable counters omit `_total` in their instrument names). Its telemetry reader/exporter
+configuration determines exposure. These report successful fetch time, current age/readiness,
+consecutive failures and cumulative failures/signals/version changes. No upstream bodies or
+credential values enter lifecycle telemetry.
+
+Graceful shutdown stops refresh, immediately denies credential consumption, attempts
+`auth/token/revoke-self` within a five-second bound and clears the retained snapshot/session.
+Failure is reported with a generic status; abrupt kills cannot revoke and rely on the bounded
+OpenBao token lifetime. The collector uses the earlier of its shutdown context and five seconds.
 
 Automation checks, OIDC exchanges and S3 request signing read the current snapshot. Root credentials
 follow the existing database bootstrap behavior: the first database initialization uses the fetched
@@ -206,6 +277,8 @@ certificates; they exercise snapshot atomicity, renewal, certificate replacement
 scope, redaction, actual collector export, credential refresh and process restart. They do not prove
 a live OpenBao policy, deployed certificate producer or production OpenObserve runtime. The existing
 CI additionally compiles OSS/OIDC and runs the OIDC/automation authorization tests.
+Lifecycle cases also cover debounced consumer-triggered refresh without replay, classified S3
+denials, jitter/backoff bounds, exported metric values, version changes and idempotent revocation.
 
 Source merge does not publish images or deploy services. Before private consumer adoption, separately
 publish and verify both immutable image digests and provenance, implement the narrow collector

@@ -2596,7 +2596,9 @@ pub fn gather() -> String {
     TextEncoder::new()
         .encode(&registry.gather(), &mut buffer)
         .unwrap();
-    String::from_utf8(buffer).unwrap()
+    let mut output = String::from_utf8(buffer).unwrap();
+    output.push_str(&crate::openbao::metrics());
+    output
 }
 
 pub fn init() {

@@ -5651,6 +5651,7 @@ dependencies = [
  "futures",
  "hashbrown 0.16.1",
  "hashlink 0.11.0",
+ "http-body-util",
  "itertools 0.14.0",
  "log",
  "object_store",

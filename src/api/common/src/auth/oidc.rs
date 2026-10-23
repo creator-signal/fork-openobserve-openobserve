@@ -407,12 +407,20 @@ async fn exchange_code(
         post_params.push(("client_secret", cfg.client_secret.as_str()));
         client.post(&metadata.token_endpoint).form(&post_params)
     };
-    Ok(request
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<TokenResponse>()
-        .await?)
+    let response = request.send().await?;
+    // Only this endpoint uses the client credential. Discovery/userinfo denial
+    // is not evidence of a stale client secret. Never replay an authorization code.
+    observe_client_auth_status(
+        response.status().as_u16(),
+        config::openbao::trigger_auth_refresh,
+    );
+    Ok(response.error_for_status()?.json::<TokenResponse>().await?)
+}
+
+fn observe_client_auth_status(status: u16, trigger: impl FnOnce()) {
+    if matches!(status, 401 | 403) {
+        trigger();
+    }
 }
 
 fn claim_contains(value: &Value, expected: &str) -> bool {
@@ -882,6 +890,15 @@ pub async fn token_validator(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_endpoint_auth_failures_signal_once_without_retrying() {
+        for status in [200, 400, 401, 403, 429, 500] {
+            let mut signals = 0;
+            observe_client_auth_status(status, || signals += 1);
+            assert_eq!(signals, usize::from(matches!(status, 401 | 403)));
+        }
+    }
 
     #[test]
     fn pkce_challenge_is_base64url_sha256() {

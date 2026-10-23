@@ -4,8 +4,11 @@ use std::{
     collections::BTreeMap,
     fmt,
     path::PathBuf,
-    sync::{Arc, OnceLock, RwLock},
-    time::{Duration, Instant},
+    sync::{
+        Arc, OnceLock, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use reqwest::{Client, Method, StatusCode, header::HeaderValue};
@@ -128,17 +131,49 @@ impl Settings {
             runtime_path: get("ZO_OPENBAO_RUNTIME_PATH")?,
             oidc_path: get("ZO_OPENBAO_OIDC_PATH")?,
             storage_path: get("ZO_OPENBAO_STORAGE_PATH")?,
-            refresh: Duration::from_secs(60),
-            max_stale: Duration::from_secs(300),
+            refresh: env_duration("ZO_OPENBAO_REFRESH_SECS", 60)?,
+            max_stale: env_duration("ZO_OPENBAO_MAX_STALENESS_SECS", 300)?,
         };
         settings.validate()?;
         Ok(Some(settings))
     }
 }
 
+fn env_duration(name: &str, default: u64) -> Result<Duration, Error> {
+    let seconds = match std::env::var(name) {
+        Ok(value) => value.parse().map_err(|_| Error::Configuration)?,
+        Err(std::env::VarError::NotPresent) => default,
+        Err(_) => return Err(Error::Configuration),
+    };
+    Ok(Duration::from_secs(seconds))
+}
+
+/// Non-secret lifecycle state. No role, path, credential or upstream payload.
+#[derive(Clone, Default, Debug)]
+pub struct Lifecycle {
+    pub last_success: u64,
+    pub consecutive_failures: u32,
+    pub refresh_failures: u64,
+    pub auth_refreshes: u64,
+    pub rotations: u64,
+    next_retry: Option<Instant>,
+    last_trigger: Option<Instant>,
+}
+
+fn retry_delay(failures: u32) -> Duration {
+    let ceiling = (10u64.saturating_mul(1u64 << failures.saturating_sub(1).min(5))).min(300);
+    // Jitter is scheduling noise, never credential/key material.
+    let noise = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64;
+    Duration::from_millis(ceiling * 500 + noise % (ceiling * 500 + 1))
+}
+
 pub struct Snapshot {
     values: BTreeMap<String, String>,
     obtained: Instant,
+    versions: [u64; 3],
 }
 impl fmt::Debug for Snapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -150,6 +185,14 @@ impl Snapshot {
         self.values.get(key).cloned().ok_or(Error::Record)
     }
     fn assemble(runtime: Record, oidc: Record, storage: Record) -> Result<Self, Error> {
+        let versions = [
+            runtime.metadata.version,
+            oidc.metadata.version,
+            storage.metadata.version,
+        ];
+        if versions.contains(&0) {
+            return Err(Error::Record);
+        }
         let mut values = BTreeMap::new();
         for (record, keys) in [
             (
@@ -197,12 +240,18 @@ impl Snapshot {
         Ok(Self {
             values,
             obtained: Instant::now(),
+            versions,
         })
     }
 }
 #[derive(Deserialize)]
 struct Record {
     data: BTreeMap<String, serde_json::Value>,
+    metadata: Metadata,
+}
+#[derive(Deserialize)]
+struct Metadata {
+    version: u64,
 }
 #[derive(Deserialize)]
 struct Kv {
@@ -222,11 +271,16 @@ struct Session {
     token: HeaderValue,
     expires: Instant,
     renewable: bool,
+    renew_at: Instant,
 }
 pub struct Provider {
     settings: Settings,
     session: tokio::sync::Mutex<Option<Session>>,
     snapshot: RwLock<Option<Arc<Snapshot>>>,
+    lifecycle: RwLock<Lifecycle>,
+    wake: tokio::sync::Notify,
+    stopped: AtomicBool,
+    worker: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 impl fmt::Debug for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -240,9 +294,16 @@ impl Provider {
             settings,
             session: tokio::sync::Mutex::new(None),
             snapshot: RwLock::new(None),
+            lifecycle: RwLock::new(Lifecycle::default()),
+            wake: tokio::sync::Notify::new(),
+            stopped: AtomicBool::new(false),
+            worker: tokio::sync::Mutex::new(None),
         })
     }
     pub fn current(&self) -> Result<Arc<Snapshot>, Error> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
         self.snapshot
             .read()
             .map_err(|_| Error::Unavailable)?
@@ -316,7 +377,8 @@ impl Provider {
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| Error::Record)
+        serde_json::from_slice(if bytes.is_empty() { b"null" } else { &bytes })
+            .map_err(|_| Error::Record)
     }
     async fn authenticate(&self, client: &Client, old: Option<&Session>) -> Result<Session, Error> {
         let renewed = if let Some(old) = old.filter(|s| s.renewable && s.expires > Instant::now()) {
@@ -358,6 +420,7 @@ impl Provider {
             token,
             expires: Instant::now() + Duration::from_secs(login.auth.lease_duration.min(86400)),
             renewable: login.auth.renewable,
+            renew_at: Instant::now() + Duration::from_secs(login.auth.lease_duration) * 2 / 3,
         })
     }
     async fn fetch(&self, client: &Client, token: &HeaderValue) -> Result<Snapshot, Error> {
@@ -390,12 +453,12 @@ impl Provider {
             .await?;
         Snapshot::assemble(runtime.data, oidc.data, storage.data)
     }
-    pub async fn refresh(&self) -> Result<(), Error> {
+    async fn refresh_inner(&self) -> Result<(), Error> {
         let client = self.client().await?;
         let mut session = self.session.lock().await;
         if session
             .as_ref()
-            .is_none_or(|s| s.expires <= Instant::now() + self.settings.refresh * 2)
+            .is_none_or(|s| s.renew_at <= Instant::now() || s.expires <= Instant::now())
         {
             *session = Some(self.authenticate(&client, session.as_ref()).await?);
         }
@@ -416,8 +479,164 @@ impl Provider {
                 .await;
         }
         // All three records must validate before publishing any changed value.
-        *self.snapshot.write().map_err(|_| Error::Unavailable)? = Some(Arc::new(next?));
+        let next = next?;
+        let mut snapshot = self.snapshot.write().map_err(|_| Error::Unavailable)?;
+        if snapshot
+            .as_ref()
+            .is_some_and(|old| old.versions != next.versions)
+        {
+            self.lifecycle
+                .write()
+                .map_err(|_| Error::Unavailable)?
+                .rotations += 1;
+        }
+        *snapshot = Some(Arc::new(next));
         Ok(())
+    }
+
+    pub async fn refresh(&self) -> Result<(), Error> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
+        let result = self.refresh_inner().await;
+        let mut state = self.lifecycle.write().map_err(|_| Error::Unavailable)?;
+        if result.is_ok() {
+            state.last_success = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            state.consecutive_failures = 0;
+            state.next_retry = None;
+        } else {
+            state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+            state.refresh_failures = state.refresh_failures.saturating_add(1);
+            state.next_retry = Some(Instant::now() + retry_delay(state.consecutive_failures));
+        }
+        result
+    }
+
+    /// Only schedules refresh; never retries the failed consumer operation.
+    pub fn trigger_auth_refresh(&self) -> bool {
+        if self.stopped.load(Ordering::Acquire) {
+            return false;
+        }
+        let Ok(mut state) = self.lifecycle.write() else {
+            return false;
+        };
+        let now = Instant::now();
+        if state.next_retry.is_some_and(|at| at > now)
+            || state
+                .last_trigger
+                .is_some_and(|at| now.duration_since(at) < Duration::from_secs(5))
+        {
+            return false;
+        }
+        state.last_trigger = Some(now);
+        state.auth_refreshes = state.auth_refreshes.saturating_add(1);
+        self.wake.notify_one();
+        true
+    }
+
+    pub fn lifecycle(&self) -> Lifecycle {
+        self.lifecycle
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn metrics(&self) -> String {
+        let state = self.lifecycle();
+        let age = self
+            .snapshot
+            .read()
+            .ok()
+            .and_then(|s| s.as_ref().map(|s| s.obtained.elapsed().as_secs_f64()))
+            .unwrap_or(0.0);
+        format!(
+            "zo_openbao_last_success_timestamp_seconds {}\nzo_openbao_consecutive_failures {}\nzo_openbao_refresh_failures_total {}\nzo_openbao_auth_refreshes_total {}\nzo_openbao_rotations_total {}\nzo_openbao_snapshot_age_seconds {age}\nzo_openbao_ready {}\n",
+            state.last_success,
+            state.consecutive_failures,
+            state.refresh_failures,
+            state.auth_refreshes,
+            state.rotations,
+            u8::from(self.current().is_ok())
+        )
+    }
+
+    async fn delay(&self) -> Duration {
+        if let Some(at) = self.lifecycle().next_retry {
+            return at.saturating_duration_since(Instant::now());
+        }
+        let session = self.session.lock().await;
+        session
+            .as_ref()
+            .map(|s| {
+                s.renew_at
+                    .saturating_duration_since(Instant::now())
+                    .min(self.settings.refresh)
+            })
+            .unwrap_or(self.settings.refresh)
+    }
+
+    pub async fn start(self: &Arc<Self>) {
+        let mut worker = self.worker.lock().await;
+        if worker.is_some() || self.stopped.load(Ordering::Acquire) {
+            return;
+        }
+        let provider = self.clone();
+        *worker = Some(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(provider.delay().await) => {},
+                    _ = provider.wake.notified() => {},
+                }
+                if provider.stopped.load(Ordering::Acquire) {
+                    break;
+                }
+                // A queued trigger cannot bypass an outage retry deadline.
+                if provider
+                    .lifecycle()
+                    .next_retry
+                    .is_some_and(|at| at > Instant::now())
+                {
+                    continue;
+                }
+                // refresh records every outcome in the exported lifecycle metrics.
+                match provider.refresh().await {
+                    Ok(()) | Err(_) => {}
+                }
+            }
+        }));
+    }
+
+    pub async fn shutdown(&self) -> Result<(), Error> {
+        if self.stopped.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Some(worker) = self.worker.lock().await.take() {
+            worker.abort();
+            let _ = worker.await;
+        }
+        let revoke = async {
+            let token = self.session.lock().await.take();
+            if let Some(token) = token {
+                let client = self.client().await?;
+                self.request::<serde_json::Value>(
+                    &client,
+                    Method::POST,
+                    "auth/token/revoke-self",
+                    Some(&token.token),
+                    Some(serde_json::json!({})),
+                )
+                .await?;
+            }
+            Ok(())
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), revoke)
+            .await
+            .unwrap_or(Err(Error::Transport));
+        *self.snapshot.write().map_err(|_| Error::Unavailable)? = None;
+        result
     }
 }
 
@@ -444,6 +663,20 @@ pub fn current() -> Result<Arc<Snapshot>, Error> {
 pub fn ready() -> bool {
     !enabled() || current().is_ok()
 }
+pub fn trigger_auth_refresh() {
+    if let Some(provider) = PROVIDER.get() {
+        provider.trigger_auth_refresh();
+    }
+}
+pub fn metrics() -> String {
+    PROVIDER.get().map(|p| p.metrics()).unwrap_or_default()
+}
+pub async fn shutdown() -> Result<(), Error> {
+    match PROVIDER.get() {
+        Some(provider) => provider.shutdown().await,
+        None => Ok(()),
+    }
+}
 pub async fn initialize() -> Result<(), Error> {
     if PROVIDER.get().is_some() {
         return Ok(());
@@ -453,18 +686,16 @@ pub async fn initialize() -> Result<(), Error> {
     let Some(settings) = settings else {
         return Ok(());
     };
-    let refresh = settings.refresh;
     let provider = Arc::new(Provider::new(settings)?);
-    provider.refresh().await?;
+    if let Err(error) = provider.refresh().await {
+        if let Err(cleanup) = provider.shutdown().await {
+            eprintln!("OpenBao startup cleanup status={cleanup}");
+        }
+        return Err(error);
+    }
     PROVIDER
         .set(provider.clone())
         .map_err(|_| Error::Configuration)?;
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(refresh).await;
-            // No upstream error body, URL, identity, response, or secret in logs.
-            let _ = provider.refresh().await;
-        }
-    });
+    provider.start().await;
     Ok(())
 }

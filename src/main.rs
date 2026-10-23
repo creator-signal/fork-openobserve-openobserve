@@ -66,6 +66,15 @@ async fn flush_reporting() {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    let result = run().await;
+    // Cover normal server exit, CLI commands and startup errors after login.
+    if let Err(error) = config::openbao::shutdown().await {
+        eprintln!("OpenBao shutdown status={error}");
+    }
+    result
+}
+
+async fn run() -> Result<(), anyhow::Error> {
     // The certificate-authenticated credential client starts before config and
     // any OpenObserve consumer. Install one provider before its TLS handshake.
     let _ = rustls::crypto::ring::default_provider().install_default();
