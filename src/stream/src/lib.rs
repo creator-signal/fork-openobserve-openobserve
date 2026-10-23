@@ -289,7 +289,9 @@ pub async fn create_stream(
         let Ok(data_type) = f.r#type.parse::<DataType>() else {
             return Ok((
                 http::StatusCode::BAD_REQUEST,
-                [(ERROR_HEADER, format!("invalid data type: {}", f.r#type))],
+                // Caller-controlled types can contain bytes forbidden in HTTP headers.
+                // Keep the diagnostic in JSON and the header safe and bounded.
+                [(ERROR_HEADER, "invalid data type")],
                 Json(MetaHttpResponse::error(
                     http::StatusCode::BAD_REQUEST,
                     format!("invalid data type: {}", f.r#type),
