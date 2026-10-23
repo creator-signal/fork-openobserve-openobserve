@@ -149,7 +149,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.contract.outputs.image }}:${{ env.RELEASE_TAG }}
-            ${{ steps.contract.outputs.image }}:sha-${{ github.sha }}
           build-args: |
             BUILD_VERSION=${{ env.RELEASE_TAG }}
             BUILD_REVISION=${{ github.sha }}
@@ -177,7 +176,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.contract.outputs.collector_image }}:${{ env.RELEASE_TAG }}
-            ${{ steps.contract.outputs.collector_image }}:sha-${{ github.sha }}
           build-args: SOURCE_REVISION=${{ github.sha }}
           provenance: mode=max
           cache-from: type=gha,scope=collector-container
