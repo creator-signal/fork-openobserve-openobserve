@@ -181,6 +181,19 @@ func TestRevokeUsesCachedSessionWithoutBootstrapFiles(t *testing.T) {
 	if err := a.refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	// Model an old login transport that cannot trust the current server anymore.
+	a.mu.Lock()
+	a.state.session.client = &http.Client{}
+	a.mu.Unlock()
+	if err := a.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	logins := f.logins
+	f.mu.Unlock()
+	if logins != 1 {
+		t.Fatal("transport update unnecessarily reauthenticated")
+	}
 	for _, path := range []string{f.cfg.CAFile, f.cfg.CertFile, f.cfg.KeyFile} {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)

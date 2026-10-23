@@ -482,6 +482,9 @@ impl Provider {
         }
         // All three records must validate before publishing any changed value.
         let next = next?;
+        // A replacement certificate can authenticate reads before token renewal.
+        // Keep its verified transport for revocation instead of the older login pair.
+        session.as_mut().ok_or(Error::Authentication)?.client = client;
         let mut snapshot = self.snapshot.write().map_err(|_| Error::Unavailable)?;
         if snapshot
             .as_ref()

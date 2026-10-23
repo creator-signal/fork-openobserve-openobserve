@@ -397,6 +397,9 @@ func (a *authenticator) refresh(ctx context.Context) (result error) {
 	if err != nil {
 		return err
 	}
+	// A replaced certificate can authenticate reads before the token renews.
+	// Revoke with this latest verified transport, not the older login pair.
+	token.client = client
 	a.mu.Lock()
 	if a.state.version != 0 && a.state.version != version {
 		a.lifecycle.Rotations++

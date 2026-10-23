@@ -545,6 +545,10 @@ async fn revoke_uses_cached_authenticated_transport_without_bootstrap_files() {
     let fixture = Fixture::new().await;
     let provider = Provider::new(fixture.settings.clone()).unwrap();
     provider.refresh().await.unwrap();
+    // Model an old login transport that is no longer usable after certificate rotation.
+    provider.session.lock().await.as_mut().unwrap().client = Client::new();
+    provider.refresh().await.unwrap();
+    assert_eq!(fixture.state.lock().unwrap().logins, 1);
     for path in [
         &fixture.settings.ca_file,
         &fixture.settings.cert_file,

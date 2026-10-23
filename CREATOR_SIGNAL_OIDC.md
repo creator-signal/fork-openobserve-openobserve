@@ -225,6 +225,8 @@ credential values enter lifecycle telemetry.
 
 Graceful shutdown stops refresh, immediately denies credential consumption, attempts
 `auth/token/revoke-self` within a five-second bound and clears the retained snapshot/session.
+It reuses the most recent successfully verified TLS transport, including a replacement
+certificate used by data polling before the next token renewal; no bootstrap file I/O is needed.
 Failure is reported with a generic status; abrupt kills cannot revoke and rely on the bounded
 OpenBao token lifetime. The collector uses the earlier of its shutdown context and five seconds.
 
