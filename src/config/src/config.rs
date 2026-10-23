@@ -3996,6 +3996,21 @@ pub fn ensure_not_empty(s: &str, name: &str) -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn root_credential_is_not_serialized() {
+        let auth = super::Auth {
+            root_user_password: "synthetic-serialization-sentinel".into(),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_value(auth).unwrap();
+        assert!(serialized.get("root_user_password").is_none());
+        assert!(
+            !serialized
+                .to_string()
+                .contains("synthetic-serialization-sentinel")
+        );
+    }
+
     /// Every `#[env_config]` default must parse.
     ///
     /// The macro reads defaults from a **string literal**, so a Rust digit

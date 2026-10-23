@@ -47,8 +47,10 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^openobserve-main-[0-9a-f]{12}-cs\.[1-9][0-9]*$ ]]
           git fetch origin creator-signal/main
           test "$(git rev-parse origin/creator-signal/main)" = "$GITHUB_SHA"
-          status="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-oidc.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '[.workflow_runs[] | select(.head_branch == "creator-signal/main")][0].conclusion')"
-          test "$status" = success
+          for workflow in ci-oidc.yml audit-checker.yml; do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$GITHUB_SHA&event=push" --jq '[.workflow_runs[] | select(.head_branch == "creator-signal/main")][0].conclusion')"
+            test "$status" = success
+          done
           upstream_ref="$(jq -r .ref .creator-signal/openobserve-base.json)"
           upstream_commit="$(jq -r .commit .creator-signal/openobserve-base.json)"
           upstream_version="$(jq -r .version .creator-signal/openobserve-base.json)"

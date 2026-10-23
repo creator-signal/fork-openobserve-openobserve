@@ -97,7 +97,7 @@ The historical `main` branch is unchanged. Downstream changes use Issues and PRs
 After separately authorizing publication, run the existing `release-oidc.yml` workflow's
 `qualify-and-publish` operation from `creator-signal/main`, supplying a new tag such as
 `openobserve-main-72f7bff3787e-cs.2`. Do not create or push tags manually. The workflow requires the
-exact current release tip and successful push CI for that revision. It reserves the immutable tag
+exact current release tip and successful push CI and security audit for that revision. It reserves the immutable tag
 before registry writes and creates the release after building the artifacts. A matching completed release is a no-op; partial publication
 requires reviewed forward recovery. Never overwrite a partial release to make a retry pass.
 
