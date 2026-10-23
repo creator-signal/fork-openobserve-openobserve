@@ -160,6 +160,20 @@ func request(t *testing.T, a *authenticator, transport http.RoundTripper, endpoi
 	}
 	return err
 }
+
+func TestWrongCertificateRoleCannotReadRecord(t *testing.T) {
+	f := makeFixture(t, "https://observe.example.test/api/default")
+	f.cfg.Role = "wrong-role"
+	a := &authenticator{cfg: f.cfg, now: time.Now}
+	if err := a.Start(context.Background(), nil); err == nil {
+		t.Fatal("wrong certificate role admitted")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.reads != 0 || a.state.secret != "" {
+		t.Fatal("wrong certificate role acquired a record")
+	}
+}
 func TestCertificateAuthRotationAndRestrictedExporter(t *testing.T) {
 	var mu sync.Mutex
 	generation := 1

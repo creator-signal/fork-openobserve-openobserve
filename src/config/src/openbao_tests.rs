@@ -144,8 +144,21 @@ impl Fixture {
                         } else if route == "/v1/auth/cert/login"
                             || route == "/v1/auth/token/renew-self"
                         {
-                            state.logins += 1;
-                            (200, serde_json::json!({"auth":{"client_token":"fixture-session-never-log", "lease_duration":3600, "renewable":true}}).to_string())
+                            let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
+                            let valid = if route == "/v1/auth/cert/login" {
+                                serde_json::from_str::<serde_json::Value>(body)
+                                    .is_ok_and(|v| v["name"] == "fixture-role")
+                            } else {
+                                request
+                                    .to_lowercase()
+                                    .contains("x-vault-token: fixture-session-never-log")
+                            };
+                            if valid {
+                                state.logins += 1;
+                                (200, serde_json::json!({"auth":{"client_token":"fixture-session-never-log", "lease_duration":3600, "renewable":true}}).to_string())
+                            } else {
+                                (403, "{}".into())
+                            }
                         } else if !request
                             .to_lowercase()
                             .contains("x-vault-token: fixture-session-never-log")
@@ -316,6 +329,17 @@ async fn wrong_ca_and_hostname_are_denied() {
 }
 
 #[tokio::test]
+async fn wrong_certificate_role_cannot_read_records() {
+    let fixture = Fixture::new().await;
+    let mut settings = fixture.settings.clone();
+    settings.role = "wrong-role".into();
+    let provider = Provider::new(settings).unwrap();
+    assert_eq!(provider.refresh().await, Err(Error::Authentication));
+    assert!(provider.current().is_err());
+    assert_eq!(fixture.state.lock().unwrap().reads, 0);
+}
+
+#[tokio::test]
 async fn configuration_rejects_redirectable_origins_and_path_escape() {
     let fixture = Fixture::new().await;
     for address in [
@@ -340,5 +364,64 @@ async fn configuration_rejects_redirectable_origins_and_path_escape() {
         let mut settings = fixture.settings.clone();
         settings.runtime_path = path.into();
         assert_eq!(settings.validate(), Err(Error::Configuration));
+    }
+}
+
+// Use separate processes: configuration tests must never race on global env.
+#[test]
+fn environment_sources_fail_closed() {
+    for name in [
+        "valid",
+        "ZO_ROOT_USER_PASSWORD",
+        "ZO_ROOT_USER_TOKEN",
+        "ZO_S3_ACCESS_KEY",
+        "ZO_S3_SECRET_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "ZO_OIDC_CLIENT_SECRET",
+        "ZO_OIDC_CLIENT_SECRET_FILE",
+        "ZO_OIDC_AUTOMATION_INGEST_TOKEN_FILE",
+        "ZO_OIDC_AUTOMATION_QUERY_TOKEN_FILE",
+        "ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE",
+        "ZO_S3_PROVIDER",
+        "ZO_S3_ACCOUNTS",
+    ] {
+        let bootstrap = std::env::temp_dir().join("synthetic-bootstrap.pem");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .env_clear()
+            .args(["--exact", "tests::environment_source_child", "--nocapture"])
+            .env("OPENBAO_TEST_CASE", name)
+            .env("ZO_OPENBAO_ENABLED", "true")
+            .env("ZO_OPENBAO_ADDRESS", "https://fixture.example.test")
+            .env("ZO_OPENBAO_CERT_ROLE", "fixture-role")
+            .env("ZO_OPENBAO_CA_FILE", &bootstrap)
+            .env("ZO_OPENBAO_CERT_FILE", &bootstrap)
+            .env("ZO_OPENBAO_KEY_FILE", &bootstrap)
+            .env("ZO_OPENBAO_RUNTIME_PATH", "kv/data/runtime")
+            .env("ZO_OPENBAO_OIDC_PATH", "kv/data/oidc")
+            .env("ZO_OPENBAO_STORAGE_PATH", "kv/data/storage");
+        if name != "valid" {
+            child.env(name, "synthetic-conflicting-source");
+        }
+        let output = child.output().unwrap();
+        assert!(
+            output.status.success(),
+            "source validation failed for {name}"
+        );
+    }
+}
+
+#[test]
+fn environment_source_child() {
+    let Ok(case) = std::env::var("OPENBAO_TEST_CASE") else {
+        return;
+    };
+    if case == "valid" {
+        assert!(Settings::from_env().unwrap().is_some());
+    } else {
+        assert!(matches!(Settings::from_env(), Err(Error::Configuration)));
     }
 }
