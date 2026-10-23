@@ -1,0 +1,48 @@
+# Locators and public configuration only. Certificate/key files are bootstrap
+# identities; no Bao session, password, ingestion token or runtime env file.
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+  openbaoauth:
+    address: https://bao.example.test:8200
+    cert_role: observe-collector
+    ca_file: /run/bootstrap/bao-ca.pem
+    cert_file: /run/bootstrap/collector.crt
+    key_file: /run/bootstrap/collector.key
+    record_path: kv/data/observability/collector
+    export_endpoint: https://observe.example.test:8443/api/default
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+  batch:
+exporters:
+  otlp_http/openobserve:
+    endpoint: https://observe.example.test:8443/api/default
+    auth:
+      authenticator: openbaoauth
+    tls:
+      ca_file: /run/bootstrap/observe-ca.pem
+service:
+  extensions: [health_check, openbaoauth]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve]

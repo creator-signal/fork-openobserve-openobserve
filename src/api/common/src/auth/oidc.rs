@@ -51,7 +51,7 @@ const OIDC_SESSION_PREFIX: &str = "oidc:";
 const OIDC_STATE_SESSION_PREFIX: &str = "oidc-state:";
 const FRONTEND_JWT_HEADER: &str = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct EffectiveConfig {
     issuer: String,
     client_id: String,
@@ -66,6 +66,12 @@ struct EffectiveConfig {
     session_max_age: i64,
     state_ttl: i64,
     insecure_allow_http: bool,
+}
+
+impl std::fmt::Debug for EffectiveConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EffectiveConfig([REDACTED])")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,20 +154,31 @@ fn public_url_is_allowed(raw: &str, allow_http: bool) -> anyhow::Result<()> {
 fn effective_config() -> anyhow::Result<EffectiveConfig> {
     let cfg = get_config();
     let oidc = &cfg.oidc;
+    let api_secrets = if config::openbao::enabled() {
+        Some(config::openbao::current()?)
+    } else {
+        None
+    };
+    let client_id = if let Some(secrets) = &api_secrets {
+        secrets.get("client_id")?
+    } else {
+        oidc.client_id.clone()
+    };
     if !oidc.enabled {
         anyhow::bail!("OIDC is disabled");
     }
 
     let issuer = oidc.issuer.trim().to_string();
-    if issuer.is_empty() || oidc.client_id.trim().is_empty() || oidc.redirect_url.trim().is_empty()
-    {
+    if issuer.is_empty() || client_id.trim().is_empty() || oidc.redirect_url.trim().is_empty() {
         anyhow::bail!("OIDC issuer, client ID, and redirect URL are required");
     }
     if !oidc.client_secret.is_empty() && !oidc.client_secret_file.is_empty() {
         anyhow::bail!("set only one of ZO_OIDC_CLIENT_SECRET or ZO_OIDC_CLIENT_SECRET_FILE");
     }
 
-    let client_secret = if !oidc.client_secret_file.is_empty() {
+    let client_secret = if let Some(secrets) = &api_secrets {
+        secrets.get("client_secret")?
+    } else if !oidc.client_secret_file.is_empty() {
         fs::read_to_string(&oidc.client_secret_file)
             .map_err(|e| anyhow::anyhow!("failed to read OIDC client secret file: {e}"))?
             .trim()
@@ -216,7 +233,7 @@ fn effective_config() -> anyhow::Result<EffectiveConfig> {
 
     Ok(EffectiveConfig {
         issuer,
-        client_id: oidc.client_id.trim().to_string(),
+        client_id: client_id.trim().to_string(),
         client_secret,
         token_endpoint_auth_method: token_endpoint_auth_method.to_string(),
         redirect_url: oidc.redirect_url.trim().to_string(),

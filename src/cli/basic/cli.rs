@@ -172,8 +172,10 @@ pub async fn cli() -> Result<bool, anyhow::Error> {
     // Handle config file argument
     if let Some(config_file_path) = app.get_one::<String>("config") {
         let path = PathBuf::from(config_file_path);
-        config::config_path_manager::set_config_file_path(path.clone())
-            .and_then(|_| openobserve_jobs::job::config_watcher::reload_config(&path))
+        config::config_path_manager::set_config_file_path(path.clone())?;
+        config::load_config()?;
+        config::openbao::initialize().await?;
+        openobserve_jobs::job::config_watcher::reload_config(&path)
             .map_err(|e|
                 anyhow::anyhow!(
                     "set config from file path {config_file_path} failed with {e}, stopping boot up... ",
@@ -182,6 +184,8 @@ pub async fn cli() -> Result<bool, anyhow::Error> {
     }
 
     if app.subcommand().is_none() {
+        let _ = config::load_config();
+        config::openbao::initialize().await?;
         return Ok(false);
     }
 
@@ -221,6 +225,8 @@ pub async fn cli() -> Result<bool, anyhow::Error> {
     }
 
     // init infra, create data dir & tables
+    let _ = config::load_config();
+    config::openbao::initialize().await?;
     let cfg = config::get_config();
     match name.as_str() {
         "reset" => {

@@ -1,9 +1,23 @@
 name: Release Creator Signal OIDC image
 
 on:
-  push:
-    tags:
-      - "openobserve-main-*-cs.*"
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [qualify-and-publish]
+      release_tag:
+        description: Exact new openobserve-main-<upstream-prefix>-cs.<revision> tag
+        type: string
+        required: true
+
+concurrency:
+  group: openobserve-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag }}
 
 permissions:
   contents: write
@@ -23,15 +37,25 @@ jobs:
       - name: Validate release ancestry and tag contract
         id: contract
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/creator-signal/main
+          test "$OPERATION" = qualify-and-publish
+          [[ "$RELEASE_TAG" =~ ^openobserve-main-[0-9a-f]{12}-cs\.[1-9][0-9]*$ ]]
+          git fetch origin creator-signal/main
+          test "$(git rev-parse origin/creator-signal/main)" = "$GITHUB_SHA"
+          status="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci-oidc.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '[.workflow_runs[] | select(.head_branch == "creator-signal/main")][0].conclusion')"
+          test "$status" = success
           upstream_ref="$(jq -r .ref .creator-signal/openobserve-base.json)"
           upstream_commit="$(jq -r .commit .creator-signal/openobserve-base.json)"
           upstream_version="$(jq -r .version .creator-signal/openobserve-base.json)"
           upstream_short="${upstream_commit:0:12}"
           expected_prefix="openobserve-main-${upstream_short}-cs."
-          if [[ "$GITHUB_REF_NAME" != "${expected_prefix}"* ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match recorded upstream main $upstream_short" >&2
+          if [[ "$RELEASE_TAG" != "${expected_prefix}"* ]]; then
+            echo "Release tag does not match recorded upstream main" >&2
             exit 1
           fi
           if ! git cat-file -e "${upstream_commit}^{commit}" 2>/dev/null; then
@@ -40,16 +64,65 @@ jobs:
           git merge-base --is-ancestor "$upstream_commit" HEAD
           owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner}/openobserve-oidc"
+          collector_image="ghcr.io/${owner}/openobserve-collector"
+          # Write-once publication: do not overwrite an existing or partial tag.
+          # A completed matching release is a no-op; a partial/mismatched one
+          # requires reviewed forward recovery, never a forced rewrite.
+          if git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)"
+            test "$actual" = "$GITHUB_SHA"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/existing-openobserve-release.json"
+            jq -e --arg sha "$GITHUB_SHA" --arg tag "$RELEASE_TAG" '
+              .target_commitish == $sha and .draft == false and
+              ([.assets[].name] | contains(["release-metadata.json", "SHA256SUMS",
+                ("openobserve-oidc-"+$tag+".spdx.json"),
+                ("openobserve-collector-"+$tag+".spdx.json"),
+                ("openobserve-oidc-"+$tag+"-source.tar.gz")]))' "$RUNNER_TEMP/existing-openobserve-release.json" >/dev/null
+            existing_dir="$RUNNER_TEMP/existing-openobserve-assets"
+            mkdir -p "$existing_dir"
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$existing_dir" \
+              --pattern release-metadata.json --pattern SHA256SUMS \
+              --pattern "openobserve-oidc-$RELEASE_TAG.spdx.json" \
+              --pattern "openobserve-collector-$RELEASE_TAG.spdx.json" \
+              --pattern "openobserve-oidc-$RELEASE_TAG-source.tar.gz"
+            jq -e --arg sha "$GITHUB_SHA" --arg tag "$RELEASE_TAG" \
+              --arg image "$image" --arg collector "$collector_image" \
+              '.sourceCommit == $sha and .sourceTag == $tag and .image == $image and
+               .collector.image == $collector and (.imageDigest | test("^sha256:[0-9a-f]{64}$")) and
+               (.collector.imageDigest | test("^sha256:[0-9a-f]{64}$"))' \
+              "$existing_dir/release-metadata.json" >/dev/null
+            (
+              cd "$existing_dir"
+              test "$(wc -l < SHA256SUMS)" -eq 4
+              # Only the four known downloaded assets may be checksum inputs.
+              awk -v tag="$RELEASE_TAG" '
+                length($1) != 64 || $1 !~ /^[0-9a-f]+$/ {exit 1}
+                $2 != "release-metadata.json" && $2 != "openobserve-oidc-"tag".spdx.json" &&
+                $2 != "openobserve-collector-"tag".spdx.json" &&
+                $2 != "openobserve-oidc-"tag"-source.tar.gz" {exit 1}' SHA256SUMS
+              sha256sum --check --strict SHA256SUMS
+            )
+            echo existing=true >> "$GITHUB_OUTPUT"
+          else
+            # Reserve the new immutable identity before the first registry write.
+            # Failed/partial publication therefore cannot reuse and overwrite it.
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" --method POST \
+              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$GITHUB_SHA" >/dev/null
+          fi
           {
             echo "upstream_ref=${upstream_ref}"
             echo "upstream_commit=${upstream_commit}"
             echo "upstream_version=${upstream_version}"
             echo "image=${image}"
+            echo "collector_image=${collector_image}"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
+        if: steps.contract.outputs.existing != 'true'
       - uses: docker/setup-buildx-action@v4
+        if: steps.contract.outputs.existing != 'true'
       - name: Provision release build swap
+        if: steps.contract.outputs.existing != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -60,11 +133,13 @@ jobs:
           sudo swapon "$swap_file"
           free -h
       - uses: docker/login-action@v3
+        if: steps.contract.outputs.existing != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Build and publish image
+        if: steps.contract.outputs.existing != 'true'
         id: image
         uses: docker/build-push-action@v6
         with:
@@ -73,10 +148,10 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ steps.contract.outputs.image }}:${{ github.ref_name }}
+            ${{ steps.contract.outputs.image }}:${{ env.RELEASE_TAG }}
             ${{ steps.contract.outputs.image }}:sha-${{ github.sha }}
           build-args: |
-            BUILD_VERSION=${{ github.ref_name }}
+            BUILD_VERSION=${{ env.RELEASE_TAG }}
             BUILD_REVISION=${{ github.sha }}
             SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
           provenance: mode=max
@@ -84,34 +159,79 @@ jobs:
           cache-to: type=gha,mode=max,scope=oidc-container
 
       - name: Attest image provenance
+        if: steps.contract.outputs.existing != 'true'
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.contract.outputs.image }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
+      - name: Build and publish the certificate-authenticated collector
+        if: steps.contract.outputs.existing != 'true'
+        id: collector
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: collector/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.contract.outputs.collector_image }}:${{ env.RELEASE_TAG }}
+            ${{ steps.contract.outputs.collector_image }}:sha-${{ github.sha }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          provenance: mode=max
+          cache-from: type=gha,scope=collector-container
+          cache-to: type=gha,mode=max,scope=collector-container
+
+      - name: Attest collector provenance
+        if: steps.contract.outputs.existing != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.contract.outputs.collector_image }}
+          subject-digest: ${{ steps.collector.outputs.digest }}
+          push-to-registry: true
+
       - uses: sigstore/cosign-installer@v3
+        if: steps.contract.outputs.existing != 'true'
       - name: Sign image by digest
+        if: steps.contract.outputs.existing != 'true'
         env:
           IMAGE: ${{ steps.contract.outputs.image }}
           DIGEST: ${{ steps.image.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          COLLECTOR_IMAGE: ${{ steps.contract.outputs.collector_image }}
+          COLLECTOR_DIGEST: ${{ steps.collector.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign sign --yes "${COLLECTOR_IMAGE}@${COLLECTOR_DIGEST}"
 
       - name: Generate SPDX SBOM
+        if: steps.contract.outputs.existing != 'true'
         uses: anchore/sbom-action@v0
         with:
           image: ${{ steps.contract.outputs.image }}@${{ steps.image.outputs.digest }}
           format: spdx-json
-          output-file: openobserve-oidc-${{ github.ref_name }}.spdx.json
+          output-file: openobserve-oidc-${{ env.RELEASE_TAG }}.spdx.json
+          upload-artifact: false
+
+      - name: Generate collector SPDX SBOM
+        if: steps.contract.outputs.existing != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.contract.outputs.collector_image }}@${{ steps.collector.outputs.digest }}
+          format: spdx-json
+          output-file: openobserve-collector-${{ env.RELEASE_TAG }}.spdx.json
           upload-artifact: false
 
       - name: Generate release artifacts
+        if: steps.contract.outputs.existing != 'true'
         env:
           UPSTREAM_REF: ${{ steps.contract.outputs.upstream_ref }}
           UPSTREAM_COMMIT: ${{ steps.contract.outputs.upstream_commit }}
           UPSTREAM_VERSION: ${{ steps.contract.outputs.upstream_version }}
           IMAGE: ${{ steps.contract.outputs.image }}
           DIGEST: ${{ steps.image.outputs.digest }}
+          COLLECTOR_IMAGE: ${{ steps.contract.outputs.collector_image }}
+          COLLECTOR_DIGEST: ${{ steps.collector.outputs.digest }}
         run: |
           jq -n \
             --arg upstreamRef "$UPSTREAM_REF" \
@@ -119,9 +239,11 @@ jobs:
             --arg upstreamCommit "$UPSTREAM_COMMIT" \
             --arg sourceRepository "$GITHUB_REPOSITORY" \
             --arg sourceCommit "$GITHUB_SHA" \
-            --arg sourceTag "$GITHUB_REF_NAME" \
+            --arg sourceTag "$RELEASE_TAG" \
             --arg image "$IMAGE" \
             --arg imageDigest "$DIGEST" \
+            --arg collectorImage "$COLLECTOR_IMAGE" \
+            --arg collectorDigest "$COLLECTOR_DIGEST" \
             --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{
               schemaVersion: 1,
@@ -133,19 +255,22 @@ jobs:
               sourceTag: $sourceTag,
               image: $image,
               imageDigest: $imageDigest,
+              collector: {image: $collectorImage, imageDigest: $collectorDigest, upstreamVersion: "0.157.0"},
               platforms: ["linux/amd64"],
-              features: ["oidc", "mimalloc"],
+              features: ["oidc", "mimalloc", "openbao-memory"],
               generatedAt: $generatedAt
             }' > release-metadata.json
           git archive --format=tar.gz \
-            --output="openobserve-oidc-${GITHUB_REF_NAME}-source.tar.gz" HEAD
+            --output="openobserve-oidc-${RELEASE_TAG}-source.tar.gz" HEAD
           sha256sum \
             release-metadata.json \
-            "openobserve-oidc-${GITHUB_REF_NAME}.spdx.json" \
-            "openobserve-oidc-${GITHUB_REF_NAME}-source.tar.gz" \
+            "openobserve-oidc-${RELEASE_TAG}.spdx.json" \
+            "openobserve-collector-${RELEASE_TAG}.spdx.json" \
+            "openobserve-oidc-${RELEASE_TAG}-source.tar.gz" \
             > SHA256SUMS
 
       - name: Validate release metadata
+        if: steps.contract.outputs.existing != 'true'
         run: |
           npx --yes ajv-cli@5 validate \
             --spec=draft2020 \
@@ -153,25 +278,32 @@ jobs:
             -d release-metadata.json
 
       - name: Upload immutable workflow artifact
+        if: steps.contract.outputs.existing != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: openobserve-oidc-${{ github.ref_name }}
+          name: openobserve-oidc-${{ env.RELEASE_TAG }}
           retention-days: 90
           if-no-files-found: error
           path: |
             release-metadata.json
-            openobserve-oidc-${{ github.ref_name }}.spdx.json
-            openobserve-oidc-${{ github.ref_name }}-source.tar.gz
+            openobserve-oidc-${{ env.RELEASE_TAG }}.spdx.json
+            openobserve-collector-${{ env.RELEASE_TAG }}.spdx.json
+            openobserve-oidc-${{ env.RELEASE_TAG }}-source.tar.gz
             SHA256SUMS
 
       - name: Publish GitHub release
+        if: steps.contract.outputs.existing != 'true'
         uses: softprops/action-gh-release@v3
         with:
-          name: OpenObserve OIDC ${{ github.ref_name }}
+          name: OpenObserve OIDC ${{ env.RELEASE_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          overwrite_files: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             release-metadata.json
-            openobserve-oidc-${{ github.ref_name }}.spdx.json
-            openobserve-oidc-${{ github.ref_name }}-source.tar.gz
+            openobserve-oidc-${{ env.RELEASE_TAG }}.spdx.json
+            openobserve-collector-${{ env.RELEASE_TAG }}.spdx.json
+            openobserve-oidc-${{ env.RELEASE_TAG }}-source.tar.gz
             SHA256SUMS

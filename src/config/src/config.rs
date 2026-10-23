@@ -853,6 +853,7 @@ pub struct Auth {
     #[env_config(name = "ZO_ROOT_USER_EMAIL")]
     pub root_user_email: String,
     #[env_config(name = "ZO_ROOT_USER_PASSWORD")]
+    #[serde(skip_serializing)]
     pub root_user_password: String,
     #[env_config(name = "ZO_ROOT_USER_TOKEN")]
     pub root_user_token: String,
@@ -2883,7 +2884,18 @@ pub fn init() -> Config {
         log::error!("Failed to load config {e}");
         // do nothing
     }
+    crate::openbao::validate_reload().expect("OpenBao source configuration changed");
     let mut cfg = Config::init().expect("config init error");
+
+    if crate::openbao::enabled() {
+        let secrets = crate::openbao::current().expect("OpenBao startup snapshot unavailable");
+        cfg.auth.root_user_email = secrets
+            .get("root_email")
+            .expect("OpenBao root identity unavailable");
+        cfg.auth.root_user_password = secrets
+            .get("root_password")
+            .expect("OpenBao root credential unavailable");
+    }
 
     // set local mode
     if cfg.common.local_mode {

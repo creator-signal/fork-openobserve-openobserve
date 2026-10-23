@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: creator-signal/main
       - name: Resolve upstream commits
         id: versions
         run: |
@@ -56,14 +57,14 @@ jobs:
           CURRENT: ${{ steps.versions.outputs.current }}
         run: |
           branch="bot/openobserve-main-${LATEST:0:12}"
-          existing="$(gh pr list --head "$branch" --base main --state open --json url --jq '.[0].url // empty')"
+          existing="$(gh pr list --head "$branch" --base creator-signal/main --state open --json url --jq '.[0].url // empty')"
           if [ -n "$existing" ]; then
             echo "Update PR already exists: $existing"
             exit 0
           fi
           gh pr create \
             --draft \
-            --base main \
+            --base creator-signal/main \
             --head "$branch" \
             --title "chore: sync OpenObserve main ${CURRENT:0:12} to ${LATEST:0:12}" \
             --body "Merges upstream main ${LATEST} into the Creator Signal OIDC overlay. CI must pass for both plain OSS and the oidc feature before this is promoted."

@@ -15,7 +15,7 @@ API credentials.
 OIDC is authentication and fixed-organization admission, not enterprise RBAC. Admitted users are
 OpenObserve `Admin` users in `ZO_OIDC_DEFAULT_ORG`, matching the authorization model available in
 the OSS build. Keep the required ZITADEL role narrow. The Creator Signal build additionally exposes
-three fixed, file-backed automation identities when explicitly enabled: OTLP ingestion only,
+three fixed automation identities when explicitly enabled: OTLP ingestion only,
 bounded governed aggregate queries only, and governed dashboard reconciliation only. These are not
 general OSS users and cannot use interactive sessions, user administration, raw search, dashboard
 deletion, or a different organization.
@@ -57,7 +57,8 @@ ZO_COOKIE_SAME_SITE_LAX=true
 ZO_WEB_URL=https://observe.creatorsignal.me
 ```
 
-`ZO_OIDC_CLIENT_SECRET` is also supported, but production should mount a read-only secret file.
+`ZO_OIDC_CLIENT_SECRET` is also supported in legacy mode. The direct OpenBao mode below replaces
+runtime credential environment variables and files with private process memory.
 Set only one secret source. HTTP issuer, redirect, and post-login URLs are rejected unless
 `ZO_OIDC_INSECURE_ALLOW_HTTP=true`; that exception is intended only for isolated local testing.
 
@@ -87,18 +88,124 @@ overlay branch was created. The upstream watcher opens a PR whenever upstream `m
 Nightly compatibility CI performs a throw-away merge with upstream `main` to reveal refactor
 conflicts before the next update.
 
-Release tags include the recorded upstream commit prefix, for example:
+`creator-signal/main` is the downstream release source, initialized from fork commit
+`f39daba4c30bbed820a9ffd6ead74f1a5710df7c`. This includes the OIDC implementation, scoped automation,
+and subsequent public-runner changes, including the history of `creator-signal/oidc-main`.
+The historical `main` branch is unchanged. Downstream changes use Issues and PRs into
+`creator-signal/main`; new downstream changes must not target the upstream mirror.
 
-```bash
-git tag -a openobserve-main-72f7bff3787e-cs.1 -m "OpenObserve main 72f7bff3787e with Creator Signal OIDC cs.1"
-git push origin openobserve-main-72f7bff3787e-cs.1
-```
+After separately authorizing publication, run the existing `release-oidc.yml` workflow's
+`qualify-and-publish` operation from `creator-signal/main`, supplying a new tag such as
+`openobserve-main-72f7bff3787e-cs.2`. Do not create or push tags manually. The workflow requires the
+exact current release tip and successful push CI for that revision. It reserves the immutable tag
+before registry writes and creates the release after building the artifacts. A matching completed release is a no-op; partial publication
+requires reviewed forward recovery. Never overwrite a partial release to make a retry pass.
 
 The release workflow refuses a tag whose upstream commit differs from the marker file or whose
 commit does not descend from that exact upstream commit. It publishes a Linux AMD64 GHCR
-image, keyless signature, registry provenance, SPDX SBOM, checksums, source archive, and validated
+application image and collector image, keyless signatures, registry provenance, SPDX SBOMs, checksums, source archive, and validated
 `release-metadata.json`. The stack should consume the image by digest from that metadata, never by
 `latest`.
+
+Scheduled workflows are evaluated from GitHub's default branch. This change updates their source
+selection to `creator-signal/main` but does not change repository settings or activate schedules
+from the historical default branch. That activation is a separate governed operation.
+
+## Direct OpenBao credentials
+
+API delivery is opt-in; legacy file mode remains available for rollback. Both executables use
+OpenBao certificate authentication over verified HTTPS. Neither writes fetched values or the
+resulting session token to files, environment variables, or command arguments. The existing
+certificate, private key and CA remain bootstrap inputs: this does not eliminate bootstrap key
+custody, database contents, backups, swap or core-dump considerations. Do not enable credential
+logging or process dumps when adopting the images.
+
+For the application, configure only nonsecret locators:
+
+```dotenv
+ZO_OPENBAO_ENABLED=true
+ZO_OPENBAO_ADDRESS=https://bao.example.test
+ZO_OPENBAO_CERT_ROLE=openobserve
+ZO_OPENBAO_CA_FILE=/run/bootstrap/ca.pem
+ZO_OPENBAO_CERT_FILE=/run/bootstrap/client.pem
+ZO_OPENBAO_KEY_FILE=/run/bootstrap/client-key.pem
+ZO_OPENBAO_RUNTIME_PATH=kv/data/example/openobserve/runtime
+ZO_OPENBAO_OIDC_PATH=kv/data/example/openobserve/oidc
+ZO_OPENBAO_STORAGE_PATH=kv/data/example/openobserve/storage
+```
+
+These are examples, not production paths or newly authorized identities. The existing governed
+certificate producer owns renewal and atomic replacement. Configure its role to read only the
+three selected KV v2 records and renew its own bounded token. No root OpenBao token is needed.
+
+| Record | Required string fields |
+| --- | --- |
+| runtime | `root_email`, `root_password`, `automation_ingest_token`, `automation_query_token`, `automation_dashboard_token` |
+| oidc | `client_id`, `client_secret` |
+| storage | `access_key`, `secret_key` |
+
+Remove legacy credential variables and secret-file selectors when enabling API delivery; mixed
+sources fail closed. Keep the OIDC issuer, redirect, organization, role, automation policy file and
+capability settings. The policy file is nonsecret repository configuration. Only the default
+AWS/S3/MinIO storage account is supported in API mode. Other storage providers and multiple
+accounts require a separate implementation before adoption.
+
+The application authenticates and validates all records before starting its consumers. It
+publishes a complete snapshot, refreshes every minute, reuses/renews its session, retries a revoked
+session once, and re-reads the certificate pair on refresh. Existing credentials remain usable for
+at most five minutes after the last complete fetch. Beyond that, credential consumers fail and
+health GET/HEAD return 503. Cold start without valid credentials fails. Response bodies are bounded
+to 64 KiB, redirects are denied and errors omit upstream payloads.
+
+Automation checks, OIDC exchanges and S3 request signing read the current snapshot. Root credentials
+follow the existing database bootstrap behavior: the first database initialization uses the fetched
+root identity; fetching a different root value does not rotate an existing database user. Root
+rotation requires its own governed database operation. Root passwords and provider snapshots are
+excluded from configuration serialization/debug formatting.
+
+## Collector memory delivery
+
+`collector/builder-config.yaml` builds the pinned OpenTelemetry v0.157.0 distribution with the
+`openbaoauth` HTTP exporter extension. `collector/config.example.yaml` shows nonsecret configuration.
+The collector requires a **separate narrow certificate role and record**; do not give it the
+application's runtime, OIDC or object-storage records. Its exact KV v2 record path must end in
+`/collector` and contain only two fields:
+
+- `schema`: `creator-signal.openobserve-collector/v1`
+- `automation_ingest_token`: the same ingestion credential accepted by the application
+
+Provisioning that identity, record projection and production configuration belongs to the private
+consumer's governed automation. This PR provisions none of them. Existing broad records are
+deliberately rejected. Only the configured HTTPS origin and exact POST `v1/logs`, `v1/metrics` and
+`v1/traces` exporter paths receive authentication. Other destinations, query strings, redirects
+and administration endpoints cannot obtain the credential. This implements OTLP HTTP, not gRPC.
+Refresh, bounded outage, certificate re-read and restart reconstruction match the application
+model. An expired collector snapshot rejects export; normal exporter retry/queue settings still
+govern data retention. The example is minimal: preserve the owning deployment's privacy filtering,
+resource processing, network exposure and queue policy when adopting it.
+
+## Source validation and adoption boundary
+
+```bash
+cargo +stable test --locked --manifest-path tests/openbao-provider/Cargo.toml --target-dir .tmp/7-openbao-memory/cargo
+go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
+cd collector/openbaoauthextension
+OPENBAO_COLLECTOR_BINARY="$(pwd)/../../.tmp/7-openbao-memory/collector-distribution/otelcol-contrib" go test -race -count=1 -v ./...
+```
+
+Use an absolute binary path for the last command (and `.exe` on Windows). The Rust harness includes
+the actual production provider source. Tests use synthetic HTTPS servers requiring verified client
+certificates; they exercise snapshot atomicity, renewal, certificate replacement, outage expiry,
+scope, redaction, actual collector export, credential refresh and process restart. They do not prove
+a live OpenBao policy, deployed certificate producer or production OpenObserve runtime. The existing
+CI additionally compiles OSS/OIDC and runs the OIDC/automation authorization tests.
+
+Source merge does not publish images or deploy services. Before private consumer adoption, separately
+publish and verify both immutable image digests and provenance, implement the narrow collector
+record/identity through its owning automation, validate both production-shaped consumers, and obtain
+deployment authorization. Preserve legacy files until a shadow byte comparison, governed consumer
+switch/restart and recovery acceptance prove retirement is safe. Equal bytes establish duplication,
+not staleness. No host file deletion or restart is part of this source change.
 
 Repository CI does not prove live acceptance. Before promotion, separately verify TLS and callback
 URLs, secure cookies, allowed and denied ZITADEL roles, restart persistence, ingestion/query,

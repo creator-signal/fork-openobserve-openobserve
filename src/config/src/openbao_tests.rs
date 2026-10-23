@@ -1,0 +1,344 @@
+use super::*;
+use std::sync::Mutex;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+struct Fixture {
+    settings: Settings,
+    state: Arc<Mutex<State>>,
+    task: tokio::task::JoinHandle<()>,
+    _directory: tempfile::TempDir,
+}
+struct State {
+    generation: usize,
+    denied: bool,
+    partial: bool,
+    oversized: bool,
+    logins: usize,
+    reads: usize,
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+impl Fixture {
+    async fn new() -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let directory = tempfile::tempdir().unwrap();
+        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "Fixture CA");
+        ca_params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::CrlSign,
+        ];
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let issuer = rcgen::Issuer::from_params(&ca_params, &ca_key);
+        let server_key = rcgen::KeyPair::generate().unwrap();
+        let mut server_params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+        server_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        server_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "Fixture server");
+        let server_cert = server_params.signed_by(&server_key, &issuer).unwrap();
+        let client_key = rcgen::KeyPair::generate().unwrap();
+        let mut client_params =
+            rcgen::CertificateParams::new(vec!["client.fixture".into()]).unwrap();
+        client_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+        client_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "Fixture client");
+        let client_cert = client_params.signed_by(&client_key, &issuer).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(ca.der().clone()).unwrap();
+        let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+            .build()
+            .unwrap();
+        let key = rustls::pki_types::PrivatePkcs8KeyDer::from(server_key.serialize_der());
+        let server = rustls::ServerConfig::builder()
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(vec![server_cert.der().clone()], key.into())
+            .unwrap();
+        let ca_file = directory.path().join("ca.pem");
+        let cert_file = directory.path().join("client.pem");
+        let key_file = directory.path().join("client-key.pem");
+        std::fs::write(&ca_file, ca.pem()).unwrap();
+        std::fs::write(&cert_file, client_cert.pem()).unwrap();
+        std::fs::write(&key_file, client_key.serialize_pem()).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let settings = Settings {
+            address: format!(
+                "https://localhost:{}",
+                listener.local_addr().unwrap().port()
+            ),
+            role: "fixture-role".into(),
+            ca_file,
+            cert_file,
+            key_file,
+            runtime_path: "kv/data/runtime".into(),
+            oidc_path: "kv/data/oidc".into(),
+            storage_path: "kv/data/storage".into(),
+            refresh: Duration::from_secs(5),
+            max_stale: Duration::from_secs(10),
+        };
+        let state = Arc::new(Mutex::new(State {
+            generation: 1,
+            denied: false,
+            partial: false,
+            oversized: false,
+            logins: 0,
+            reads: 0,
+        }));
+        let shared = state.clone();
+        let task = tokio::spawn(async move {
+            let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server));
+            while let Ok((socket, _)) = listener.accept().await {
+                let acceptor = acceptor.clone();
+                let shared = shared.clone();
+                tokio::spawn(async move {
+                    let Ok(mut stream) = acceptor.accept(socket).await else {
+                        return;
+                    };
+                    let mut input = Vec::new();
+                    let mut buffer = [0; 4096];
+                    loop {
+                        let Ok(n) = stream.read(&mut buffer).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            return;
+                        }
+                        input.extend_from_slice(&buffer[..n]);
+                        if input.len() > 65536 {
+                            return;
+                        }
+                        if let Some(header_end) = input.windows(4).position(|b| b == b"\r\n\r\n") {
+                            let header =
+                                String::from_utf8_lossy(&input[..header_end]).to_lowercase();
+                            let length = header
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length: "))
+                                .and_then(|n| n.parse::<usize>().ok())
+                                .unwrap_or(0);
+                            if input.len() >= header_end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&input);
+                    let route = request
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .split(' ')
+                        .nth(1)
+                        .unwrap_or("");
+                    let (status, body) = {
+                        let mut state = shared.lock().unwrap();
+                        let generation = state.generation;
+                        if state.denied {
+                            (403, "{\"errors\":[\"do-not-log-response-secret\"]}".into())
+                        } else if route == "/v1/auth/cert/login"
+                            || route == "/v1/auth/token/renew-self"
+                        {
+                            state.logins += 1;
+                            (200, serde_json::json!({"auth":{"client_token":"fixture-session-never-log", "lease_duration":3600, "renewable":true}}).to_string())
+                        } else if !request
+                            .to_lowercase()
+                            .contains("x-vault-token: fixture-session-never-log")
+                        {
+                            (403, "{}".into())
+                        } else {
+                            state.reads += 1;
+                            if state.oversized {
+                                (200, "x".repeat(MAX_BODY + 1))
+                            } else if route == "/v1/kv/data/runtime" {
+                                (200, serde_json::json!({"data":{"data":{
+                                    "root_email":"fixture@example.test", "root_password":"fixture-root-password-never-log",
+                                    "automation_ingest_token":format!("ingest-{generation:032}"),
+                                    "automation_query_token":format!("query-{generation:032}"),
+                                    "automation_dashboard_token":format!("dashboard-{generation:032}")}}}).to_string())
+                            } else if route == "/v1/kv/data/oidc" {
+                                if state.partial {
+                                    (200, "{\"data\":{\"data\":{}}}".into())
+                                } else {
+                                    (200, serde_json::json!({"data":{"data":{"client_id":"fixture-client", "client_secret":format!("oidc-secret-{generation}")}}}).to_string())
+                                }
+                            } else if route == "/v1/kv/data/storage" {
+                                (200, serde_json::json!({"data":{"data":{"access_key":"fixture-access", "secret_key":format!("storage-secret-{generation}")}}}).to_string())
+                            } else {
+                                (404, "{}".into())
+                            }
+                        }
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+        });
+        Self {
+            settings,
+            state,
+            task,
+            _directory: directory,
+        }
+    }
+}
+
+#[tokio::test]
+async fn certificate_login_complete_snapshot_and_refresh_in_memory() {
+    let fixture = Fixture::new().await;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    assert!(matches!(provider.current(), Err(Error::Unavailable)));
+    provider.refresh().await.unwrap();
+    let initial = provider.current().unwrap();
+    assert_eq!(initial.get("client_secret").unwrap(), "oidc-secret-1");
+    assert_eq!(fixture.state.lock().unwrap().reads, 3);
+    fixture.state.lock().unwrap().generation = 2;
+    provider.refresh().await.unwrap();
+    let rotated = provider.current().unwrap();
+    assert_eq!(rotated.get("client_secret").unwrap(), "oidc-secret-2");
+    assert_eq!(rotated.get("secret_key").unwrap(), "storage-secret-2");
+    assert_ne!(
+        initial.get("automation_ingest_token").unwrap(),
+        rotated.get("automation_ingest_token").unwrap()
+    );
+    assert_eq!(
+        fixture.state.lock().unwrap().logins,
+        1,
+        "valid sessions are reused"
+    );
+    let debug = format!("{provider:?} {rotated:?}");
+    assert!(!debug.contains("secret-2"));
+    assert_eq!(
+        std::fs::read_dir(fixture._directory.path())
+            .unwrap()
+            .count(),
+        3,
+        "only synthetic bootstrap files exist"
+    );
+}
+
+#[tokio::test]
+async fn incomplete_or_oversized_record_cannot_publish_partial_rotation() {
+    let fixture = Fixture::new().await;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    provider.refresh().await.unwrap();
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.generation = 2;
+        state.partial = true;
+    }
+    assert_eq!(provider.refresh().await, Err(Error::Record));
+    assert_eq!(
+        provider.current().unwrap().get("client_secret").unwrap(),
+        "oidc-secret-1"
+    );
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.partial = false;
+        state.oversized = true;
+    }
+    assert_eq!(provider.refresh().await, Err(Error::Record));
+    assert_eq!(
+        provider.current().unwrap().get("secret_key").unwrap(),
+        "storage-secret-1"
+    );
+}
+
+#[tokio::test]
+async fn outage_has_bounded_last_good_state_and_cold_start_fails_closed() {
+    let fixture = Fixture::new().await;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    provider.refresh().await.unwrap();
+    fixture.state.lock().unwrap().denied = true;
+    let error = provider.refresh().await.unwrap_err();
+    assert!(!format!("{error:?} {error}").contains("do-not-log-response-secret"));
+    assert!(provider.current().is_ok());
+    {
+        let mut stored = provider.snapshot.write().unwrap();
+        let snapshot = stored.as_ref().unwrap();
+        *stored = Some(Arc::new(Snapshot {
+            values: snapshot.values.clone(),
+            obtained: Instant::now() - Duration::from_secs(11),
+        }));
+    }
+    assert!(matches!(provider.current(), Err(Error::Unavailable)));
+    let cold = Provider::new(fixture.settings.clone()).unwrap();
+    assert!(cold.refresh().await.is_err());
+    assert!(cold.current().is_err());
+    fixture.state.lock().unwrap().denied = false;
+    provider.refresh().await.unwrap();
+    assert!(provider.current().is_ok());
+}
+
+#[tokio::test]
+async fn expired_session_renews_and_bootstrap_pair_is_reread() {
+    let fixture = Fixture::new().await;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    provider.refresh().await.unwrap();
+    provider.session.lock().await.as_mut().unwrap().expires =
+        Instant::now() + Duration::from_secs(1);
+    provider.refresh().await.unwrap();
+    assert_eq!(fixture.state.lock().unwrap().logins, 2);
+    let key = std::fs::read(&fixture.settings.key_file).unwrap();
+    std::fs::write(&fixture.settings.key_file, b"invalid-fixture-key").unwrap();
+    assert_eq!(provider.refresh().await, Err(Error::Configuration));
+    std::fs::write(&fixture.settings.key_file, key).unwrap();
+    provider.refresh().await.unwrap();
+}
+
+#[tokio::test]
+async fn wrong_ca_and_hostname_are_denied() {
+    let fixture = Fixture::new().await;
+    let mut settings = fixture.settings.clone();
+    settings.address = settings.address.replace("localhost", "127.0.0.1");
+    assert_eq!(
+        Provider::new(settings).unwrap().refresh().await,
+        Err(Error::Transport)
+    );
+    let other = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    std::fs::write(&fixture.settings.ca_file, other.cert.pem()).unwrap();
+    assert_eq!(
+        Provider::new(fixture.settings.clone())
+            .unwrap()
+            .refresh()
+            .await,
+        Err(Error::Transport)
+    );
+}
+
+#[tokio::test]
+async fn configuration_rejects_redirectable_origins_and_path_escape() {
+    let fixture = Fixture::new().await;
+    for address in [
+        "http://localhost",
+        "https://user:password@localhost",
+        "https://localhost/prefix",
+        "https://localhost?token=bad",
+        "https://localhost/#fragment",
+    ] {
+        let mut settings = fixture.settings.clone();
+        settings.address = address.into();
+        assert_eq!(settings.validate(), Err(Error::Configuration));
+    }
+    for path in [
+        "kv/data/../sys",
+        "kv/data/a%2fb",
+        "kv/data/a?b",
+        "/kv/data/a",
+        "kv/metadata/a",
+        "kv/data/*",
+    ] {
+        let mut settings = fixture.settings.clone();
+        settings.runtime_path = path.into();
+        assert_eq!(settings.validate(), Err(Error::Configuration));
+    }
+}
