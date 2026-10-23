@@ -186,6 +186,13 @@ resource processing, network exposure and queue policy when adopting it.
 
 ## Source validation and adoption boundary
 
+Issue #7 also updates inherited security dependencies: VRL 0.33.1 / domain 0.12.3,
+ZIP 9.0.5, rustls 0.23.46, rustls-webpki 0.103.16, quinn-proto 0.11.19 and
+webpki trust roots 1.0.11. The small Vector enrichment/category dependencies are
+maintained in `vendor/` with pinned upstream provenance and MPL-2.0 licences so
+all application and enrichment paths share the patched VRL types. Their upstream
+unit tests are included in the existing CI. No audit finding is suppressed.
+
 ```bash
 cargo +stable test --locked --manifest-path tests/openbao-provider/Cargo.toml --target-dir .tmp/7-openbao-memory/cargo
 go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
