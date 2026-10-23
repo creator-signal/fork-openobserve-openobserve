@@ -106,6 +106,7 @@ func NewFactory() extension.Factory {
 
 type session struct {
 	token     string
+	client    *http.Client
 	expires   time.Time
 	renewable bool
 	renewAt   time.Time
@@ -313,7 +314,7 @@ func (a *authenticator) login(ctx context.Context, client *http.Client, old sess
 		return session{}, errDenied
 	}
 	ttl := time.Duration(response.Auth.Lease) * time.Second
-	return session{token: response.Auth.Token, expires: a.now().Add(ttl), renewable: response.Auth.Renewable, renewAt: a.now().Add(ttl * 2 / 3)}, nil
+	return session{token: response.Auth.Token, client: client, expires: a.now().Add(ttl), renewable: response.Auth.Renewable, renewAt: a.now().Add(ttl * 2 / 3)}, nil
 }
 func (a *authenticator) fetch(ctx context.Context, client *http.Client, token string) (string, uint64, error) {
 	var response struct {
@@ -464,16 +465,16 @@ func (a *authenticator) Shutdown(ctx context.Context) error {
 		}
 	}
 	a.mu.Lock()
-	token := a.state.session.token
+	token := a.state.session
 	a.state = state{}
 	a.mu.Unlock()
-	if token != "" {
-		client, transport, err := a.client()
-		if err != nil {
-			return err
+	if token.token != "" {
+		// Cached authenticated transport keeps shutdown independent of file I/O.
+		if token.client == nil {
+			return errUnavailable
 		}
-		defer transport.CloseIdleConnections()
-		return a.request(ctx, client, "POST", "auth/token/revoke-self", token, map[string]string{}, nil)
+		defer token.client.CloseIdleConnections()
+		return a.request(ctx, token.client, "POST", "auth/token/revoke-self", token.token, map[string]string{}, nil)
 	}
 	return nil
 }

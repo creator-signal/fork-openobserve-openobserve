@@ -539,3 +539,20 @@ async fn shutdown_is_bounded_even_when_revoke_endpoint_hangs() {
     assert!(provider.current().is_err());
     assert!(provider.session.lock().await.is_none());
 }
+
+#[tokio::test]
+async fn revoke_uses_cached_authenticated_transport_without_bootstrap_files() {
+    let fixture = Fixture::new().await;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    provider.refresh().await.unwrap();
+    for path in [
+        &fixture.settings.ca_file,
+        &fixture.settings.cert_file,
+        &fixture.settings.key_file,
+    ] {
+        std::fs::remove_file(path).unwrap();
+    }
+    provider.shutdown().await.unwrap();
+    assert_eq!(fixture.state.lock().unwrap().revokes, 1);
+    assert!(provider.current().is_err());
+}

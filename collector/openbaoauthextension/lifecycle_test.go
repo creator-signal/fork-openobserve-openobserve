@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -171,5 +172,27 @@ func TestShutdownRevokeHasFiveSecondBound(t *testing.T) {
 	}
 	if time.Since(started) > 6*time.Second || a.state.secret != "" || a.state.session.token != "" {
 		t.Fatal("shutdown was not bounded or cleared")
+	}
+}
+
+func TestRevokeUsesCachedSessionWithoutBootstrapFiles(t *testing.T) {
+	f := makeFixture(t, "https://observe.example.test/api/default")
+	a := &authenticator{cfg: f.cfg, now: time.Now}
+	if err := a.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{f.cfg.CAFile, f.cfg.CertFile, f.cfg.KeyFile} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	revokes := f.revokes
+	f.mu.Unlock()
+	if revokes != 1 {
+		t.Fatal("session was not revoked")
 	}
 }

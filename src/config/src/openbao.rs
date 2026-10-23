@@ -269,6 +269,7 @@ struct Login {
 }
 struct Session {
     token: HeaderValue,
+    client: Client,
     expires: Instant,
     renewable: bool,
     renew_at: Instant,
@@ -418,6 +419,7 @@ impl Provider {
         token.set_sensitive(true);
         Ok(Session {
             token,
+            client: client.clone(),
             expires: Instant::now() + Duration::from_secs(login.auth.lease_duration.min(86400)),
             renewable: login.auth.renewable,
             renew_at: Instant::now() + Duration::from_secs(login.auth.lease_duration) * 2 / 3,
@@ -620,9 +622,10 @@ impl Provider {
         let revoke = async {
             let token = self.session.lock().await.take();
             if let Some(token) = token {
-                let client = self.client().await?;
+                // Revoke through the authenticated session's cached TLS client.
+                // Shutdown must not depend on bootstrap file I/O or replacement.
                 self.request::<serde_json::Value>(
-                    &client,
+                    &token.client,
                     Method::POST,
                     "auth/token/revoke-self",
                     Some(&token.token),
