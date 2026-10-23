@@ -1,0 +1,56 @@
+{
+  "crate": "utoipa-swagger-ui",
+  "version": "9.0.2",
+  "archiveSha256": "d047458f1b5b65237c2f6dc6db136945667f40a7668627b3490b9513a3d43a55",
+  "source": "https://crates.io/crates/utoipa-swagger-ui/9.0.2",
+  "files": [
+    {
+      "path": "vendor/utoipa-swagger-ui/.cargo_vcs_info.json",
+      "sha256": "ef50e3ce0e459cda869800dfbfd0687bf0354dd96b0541056592dbc5936767eb"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/CHANGELOG.md",
+      "sha256": "255243a828b51fcbacce930f4f4f6860f9aa807e601065bf45f0f823a417834e"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/Cargo.toml",
+      "sha256": "c9f5ec00427a45f123ea87ee39ad53455580532512d225a8d727a689e6b8a1e6"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/LICENSE-APACHE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/LICENSE-MIT",
+      "sha256": "82b13fb25622b1950fecb9efa76d8b3cfd956ecc136893e4fe47fbaf74fba097"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/README.md",
+      "sha256": "c5a51442a058effab21ebfe86a87db170e42cba4c25d7552b8cab316bb826f35"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/build.rs",
+      "sha256": "80541e07a93ae95a670bd02912802cf7c5c5c82531e7380f341c5750b616992c"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/src/actix.rs",
+      "sha256": "167d085ac768348562d0a75c48f1ff20b05b654a69a97aa1a0764df7f7be55d5"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/src/axum.rs",
+      "sha256": "e36f71d06ee81635c4758b87bf0465bbcd12f7a51478a0801f6820d1c273c03b"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/src/lib.rs",
+      "sha256": "213ee84e9e3aa40f809190204c18508c51bc0a089037eb65adca66419b70f376"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/src/oauth.rs",
+      "sha256": "fba12149325e87060598fa40f07d13bb75cc75924b7302f2a30c25eebe4b36e3"
+    },
+    {
+      "path": "vendor/utoipa-swagger-ui/src/rocket.rs",
+      "sha256": "949b57a3bc50b5a853a437f2152881a9872e8f2ca2c70062f900e6f5b81e1a1f"
+    }
+  ]
+}

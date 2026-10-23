@@ -1,0 +1,71 @@
+{
+  "repository": "https://github.com/mattsse/chromiumoxide",
+  "revision": "6f2392f78ae851e2acf33df8e9764cc299d837db",
+  "files": [
+    {
+      "upstreamPath": "chromiumoxide_fetcher/Cargo.toml",
+      "sha256": "dd290eb6e3ae78b75a256f2a8cd5e9a8e28cea4363a01c14ef5ed7efa28c1d2e",
+      "path": "vendor/chromiumoxide-fetcher/Cargo.toml"
+    },
+    {
+      "upstreamPath": "LICENSE-MIT",
+      "sha256": "98a4c221d8ce432e288201386cc53169fb50385fd21d086f22a1c669d17d05f9",
+      "path": "vendor/chromiumoxide-fetcher/LICENSE-MIT"
+    },
+    {
+      "upstreamPath": "LICENSE-APACHE",
+      "sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
+      "path": "vendor/chromiumoxide-fetcher/LICENSE-APACHE"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/error.rs",
+      "sha256": "66868e05b3da74dad810bf184e1fa240173c081333e67313edd968f5a59d8ab1",
+      "path": "vendor/chromiumoxide-fetcher/src/error.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/lib.rs",
+      "sha256": "388f4421abce7d02116fca4aa828a5a967034ca2e641bc70362ba70aaef2ae32",
+      "path": "vendor/chromiumoxide-fetcher/src/lib.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/platform.rs",
+      "sha256": "503eb4b6e5417b9dc9c185ea82dc0ea040e8f1fc33a322ae002359ba72bd1485",
+      "path": "vendor/chromiumoxide-fetcher/src/platform.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/revision.rs",
+      "sha256": "7ac15cf9c7682e7034a76e9b1cb823573c24b90d2e94a977b5f100503b3e476c",
+      "path": "vendor/chromiumoxide-fetcher/src/revision.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/fetcher.rs",
+      "sha256": "29dda3802612aeb2bb0f692e26d35afe5efa6def59750011f916c2fb741377a0",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/fetcher.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/mod.rs",
+      "sha256": "056d2432665d0e40839a6ed7e04e60eccd6fb084dee1885f4d270c2ebb000f42",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/mod.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/options.rs",
+      "sha256": "7b10d173123a825bbb93cba869f98e19ef025d26c13f1e0fb216a5bad249e006",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/options.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/revision_info.rs",
+      "sha256": "f25283f6f675ec2b997805d4a757caf213e8c7701a2dff5b72d03f91cb1c5894",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/revision_info.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/runtime.rs",
+      "sha256": "c972bd27c907861fadaf4b6ab24a5f88c3e8fb215057879ecbe8ba4eb505448f",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/runtime.rs"
+    },
+    {
+      "upstreamPath": "chromiumoxide_fetcher/src/browser/zip.rs",
+      "sha256": "ce2cf1073efdd76d9c90f6d05dfad0cbf95c1ef77249c4db8645bf38f00ae02d",
+      "path": "vendor/chromiumoxide-fetcher/src/browser/zip.rs"
+    }
+  ]
+}

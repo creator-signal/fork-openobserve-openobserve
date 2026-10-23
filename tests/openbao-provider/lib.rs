@@ -5,3 +5,7 @@ include!("../../src/config/src/openbao.rs");
 #[cfg(test)]
 #[path = "../../src/config/src/openbao_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../vendor/chromiumoxide-fetcher/src/browser/zip.rs"]
+mod archive;
