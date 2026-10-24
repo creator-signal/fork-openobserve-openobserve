@@ -31,6 +31,13 @@ cargo build --profile release-prod --features oidc,mimalloc
 docker build -f deploy/build/Dockerfile.oidc .
 ```
 
+The OIDC Dockerfile consumes digest-pinned official Node, Rust and Debian bases
+directly from Docker Hub. Its existing builder stage installs the same pinned
+`nightly-2026-05-20` toolchain and native build dependencies; no separately
+published builder image or ECR credentials are required. Cargo builds remain
+locked to the reviewed dependency graph. This removes the public ECR anonymous
+data-quota dependency without changing the registered release workflow or gates.
+
 Builds without `--features oidc` retain upstream OSS login behavior and do not expose the OIDC
 routes.
 

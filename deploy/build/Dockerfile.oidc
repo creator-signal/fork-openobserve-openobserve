@@ -1,23 +1,33 @@
 # syntax=docker/dockerfile:1.7
 
-FROM public.ecr.aws/docker/library/node:24-trixie AS webbuilder
+FROM docker.io/library/node:24-trixie@sha256:016f604a11c4c725f0a4c62e29ff11adab153d297bf97046c9bf2ddb9f1011d3 AS webbuilder
 WORKDIR /web
 COPY ./web/package.json ./web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY ./web /web/
 RUN NODE_OPTIONS="--max-old-space-size=8192" npm run build
 
-FROM public.ecr.aws/zinclabs/rust:trixie-sccache AS builder
+FROM docker.io/library/rust:trixie@sha256:931c2c0531a8b143e044f0f3914dfe802f15bb3d1955f0b657e9359327ac2ffc AS toolchain
+# Reproduce the upstream builder's toolchain and native dependencies here.
+# Its sccache wrapper was disabled; BuildKit owns the existing Cargo caches.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      protobuf-compiler libboost-all-dev pkg-config cmake libclang-dev libssl-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    rustup toolchain install nightly-2026-05-20 --profile minimal --component rustfmt,clippy,llvm-tools && \
+    rustup default nightly-2026-05-20
+
+FROM toolchain AS builder
 WORKDIR /openobserve
 COPY . /openobserve
 COPY --from=webbuilder /web/dist web/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/openobserve/target,sharing=locked \
-    cargo build --release --features oidc,mimalloc --jobs 1 && \
+    cargo build --locked --release --features oidc,mimalloc --jobs 1 && \
     cp target/release/openobserve /tmp/openobserve
 
-FROM public.ecr.aws/debian/debian:trixie-slim AS runtime
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS runtime
 ARG BUILD_VERSION=dev
 ARG BUILD_REVISION=unknown
 ARG SOURCE_REPOSITORY=https://github.com/openobserve/openobserve
