@@ -11,9 +11,42 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componentstatus"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
+
+type readinessHost struct{ events []*componentstatus.Event }
+
+func (h *readinessHost) GetExtensions() map[component.ID]component.Component { return nil }
+func (h *readinessHost) Report(event *componentstatus.Event)                 { h.events = append(h.events, event) }
+
+func TestReadinessTransitionsDoNotExposeSecretsOrRepeat(t *testing.T) {
+	clock := time.Now()
+	host := &readinessHost{}
+	a := &authenticator{cfg: Config{MaxStale: 5 * time.Minute}, now: func() time.Time { return clock }, host: host,
+		state: state{secret: "fixture-ingest-token-must-not-be-reported", fetched: clock}}
+	a.reportReadiness()
+	a.reportReadiness()
+	clock = clock.Add(5 * time.Minute)
+	a.reportReadiness()
+	a.reportReadiness()
+	a.state.fetched = clock
+	a.reportReadiness()
+	want := []componentstatus.Status{componentstatus.StatusOK, componentstatus.StatusRecoverableError, componentstatus.StatusOK}
+	if len(host.events) != len(want) {
+		t.Fatal("readiness transitions were repeated or missing")
+	}
+	for i, event := range host.events {
+		if event.Status() != want[i] {
+			t.Fatal("incorrect readiness transition")
+		}
+		if event.Err() != nil && event.Err().Error() != "openbaoauth: credentials unavailable" {
+			t.Fatal("unbounded readiness error")
+		}
+	}
+}
 
 func TestLifecycleMetricsBackoffExpiryRecoveryAndRevoke(t *testing.T) {
 	f := makeFixture(t, "https://observe.example.test/api/default")

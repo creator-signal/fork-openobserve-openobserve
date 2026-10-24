@@ -264,6 +264,18 @@ model. An expired collector snapshot rejects export; normal exporter retry/queue
 govern data retention. The example is minimal: preserve the owning deployment's privacy filtering,
 resource processing, network exposure and queue policy when adopting it.
 
+The image enables `extension.healthcheck.useComponentStatus` and includes a silent
+`/collector-healthcheck` probe for the loopback HTTP readiness endpoint (port 13133).
+Use the example's v2 `health_check` configuration, including recoverable errors with
+`recovery_duration: 0s`: an expired snapshot reports a fixed recoverable status and
+HTTP 503; a successful refresh restores HTTP 200. Status is checked once per second
+independently of refresh backoff, and only transitions are reported. The probe accepts
+only an optional numeric `--port`, ignores proxies, rejects redirects, never reads or
+prints response bodies and times out after two seconds. Docker checks execute this
+probe, not config validation. When running the distribution outside the image, pass
+`--feature-gates=+extension.healthcheck.useComponentStatus` explicitly. The running
+distribution acceptance test exercises healthy, stale and recovered probe results.
+
 ## Source validation and adoption boundary
 
 Issue #7 also updates inherited security dependencies: VRL 0.33.1 / domain 0.12.3,
