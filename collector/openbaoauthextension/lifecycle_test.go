@@ -34,7 +34,9 @@ func TestReadinessTransitionsDoNotExposeSecretsOrRepeat(t *testing.T) {
 	a.reportReadiness()
 	a.state.fetched = clock
 	a.reportReadiness()
-	want := []componentstatus.Status{componentstatus.StatusOK, componentstatus.StatusRecoverableError, componentstatus.StatusOK}
+	a.stopped = true
+	a.reportReadiness()
+	want := []componentstatus.Status{componentstatus.StatusOK, componentstatus.StatusRecoverableError, componentstatus.StatusOK, componentstatus.StatusRecoverableError}
 	if len(host.events) != len(want) {
 		t.Fatal("readiness transitions were repeated or missing")
 	}

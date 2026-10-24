@@ -4,9 +4,22 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestOversizedHealthHeadersAreRejected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Untrusted-Health-Data", strings.Repeat("x", 16384))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	_, port, _ := net.SplitHostPort(server.Listener.Addr().String())
+	if run([]string{"--port=" + port}) == 0 {
+		t.Fatal("oversized headers bypassed response bounds")
+	}
+}
 
 func TestStatusRedirectAndBodyAreBounded(t *testing.T) {
 	for _, code := range []int{200, 503, 302} {
