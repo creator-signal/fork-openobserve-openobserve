@@ -27,6 +27,9 @@ use object_store::{
 
 use crate::storage::CONCURRENT_REQUESTS;
 
+#[path = "openbao_transport.rs"]
+mod openbao_transport;
+
 // test only
 const TEST_FILE: &str = "o2_test/check.txt";
 
@@ -257,13 +260,37 @@ fn init_aws_config(config: StorageConfig) -> object_store::Result<object_store::
     if !config.region_name.is_empty() {
         builder = builder.with_region(&config.region_name);
     }
-    if !config.access_key.is_empty() {
+    if config::openbao::enabled() {
+        builder = builder.with_credentials(std::sync::Arc::new(OpenBaoCredentials));
+        builder = builder.with_http_connector(openbao_transport::AuthRefreshConnector);
+    } else if !config.access_key.is_empty() {
         builder = builder.with_access_key_id(&config.access_key);
     }
-    if !config.secret_key.is_empty() {
+    if !config::openbao::enabled() && !config.secret_key.is_empty() {
         builder = builder.with_secret_access_key(&config.secret_key);
     }
     builder.build()
+}
+
+#[derive(Debug)]
+struct OpenBaoCredentials;
+
+#[async_trait]
+impl object_store::CredentialProvider for OpenBaoCredentials {
+    type Credential = object_store::aws::AwsCredential;
+
+    async fn get_credential(&self) -> object_store::Result<std::sync::Arc<Self::Credential>> {
+        let unavailable = |_| Error::Generic {
+            store: "OpenBao",
+            source: "Object-storage credentials unavailable".into(),
+        };
+        let snapshot = config::openbao::current().map_err(unavailable)?;
+        Ok(std::sync::Arc::new(object_store::aws::AwsCredential {
+            key_id: snapshot.get("access_key").map_err(unavailable)?,
+            secret_key: snapshot.get("secret_key").map_err(unavailable)?,
+            token: None,
+        }))
+    }
 }
 
 fn init_azure_config(

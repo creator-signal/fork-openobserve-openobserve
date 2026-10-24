@@ -66,6 +66,18 @@ async fn flush_reporting() {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    let result = run().await;
+    // Cover normal server exit, CLI commands and startup errors after login.
+    if let Err(error) = config::openbao::shutdown().await {
+        eprintln!("OpenBao shutdown status={error}");
+    }
+    result
+}
+
+async fn run() -> Result<(), anyhow::Error> {
+    // The certificate-authenticated credential client starts before config and
+    // any OpenObserve consumer. Install one provider before its TLS handshake.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     // CLI provides the path to the config file (if any)
     // In case a custom path is provided, the file will be read first
     // and config variables will be loaded.
@@ -144,9 +156,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // install ring as the default crypto provider if TLS is enabled
     if cfg.http.tls_enabled || cfg.grpc.tls_enabled {
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .expect("Failed to install rustls crypto provider");
+        let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
     // init action server

@@ -1,0 +1,25 @@
+dist:
+  module: github.com/creator-signal/fork-openobserve-openobserve/collector/distribution
+  name: otelcol-contrib
+  description: Creator Signal scoped OpenBao OTLP collector
+  version: 0.157.0-cs.1
+  output_path: .tmp/7-openbao-memory/collector-distribution
+  use_absolute_replace_paths: true
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.157.0
+  - gomod: github.com/creator-signal/fork-openobserve-openobserve/collector/openbaoauthextension v0.0.0
+    path: ./collector/openbaoauthextension
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.157.0
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.157.0
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.157.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.157.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/attributesprocessor v0.157.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.157.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.157.0
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.63.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.63.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.63.0

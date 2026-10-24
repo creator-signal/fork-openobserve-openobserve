@@ -34,6 +34,7 @@ Key changes from original:
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import random
@@ -136,13 +137,20 @@ def streams_setup(create_session):
     base_url = ZO_BASE_URL
 
     with open(ROOT_DIR / "test-data/logs_data.json") as f:
-        data = f.read()
+        data = json.load(f)
+
+    # Histogram assertions require a single ten-second bucket. Server-assigned
+    # timestamps can span a boundary while this batch is ingested on a busy runner.
+    # Keep all records/fields and pin only this fixture's event time to one past bucket.
+    timestamp_us = (_now_us() // 10_000_000 - 1) * 10_000_000
+    for record in data:
+        record["_timestamp"] = timestamp_us
 
     # Ingest main + join streams (use the same dataset for both)
     for stream in (STREAM_NAME, STREAM_JOIN):
         resp = session.post(
             f"{base_url}api/{ORG_ID}/{stream}/_json",
-            data=data,
+            json=data,
             headers={"Content-Type": "application/json"},
         )
         assert resp.status_code == 200, (

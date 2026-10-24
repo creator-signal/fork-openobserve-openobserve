@@ -140,6 +140,21 @@ async fn read_bounded_secret(path: &str) -> Result<String, AuthError> {
 }
 
 async fn configured_secrets() -> Result<[String; 3], AuthError> {
+    if config::openbao::enabled() {
+        let snapshot = config::openbao::current().map_err(|_| {
+            AuthError::Forbidden("Scoped automation credentials unavailable".into())
+        })?;
+        let read = |name| {
+            snapshot.get(name).map_err(|_| {
+                AuthError::Forbidden("Scoped automation credentials unavailable".into())
+            })
+        };
+        return Ok([
+            read("automation_ingest_token")?,
+            read("automation_query_token")?,
+            read("automation_dashboard_token")?,
+        ]);
+    }
     let oidc = &get_config().oidc;
     let secrets = [
         read_bounded_secret(&oidc.automation_ingest_token_file).await?,

@@ -51,7 +51,7 @@ const OIDC_SESSION_PREFIX: &str = "oidc:";
 const OIDC_STATE_SESSION_PREFIX: &str = "oidc-state:";
 const FRONTEND_JWT_HEADER: &str = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct EffectiveConfig {
     issuer: String,
     client_id: String,
@@ -66,6 +66,12 @@ struct EffectiveConfig {
     session_max_age: i64,
     state_ttl: i64,
     insecure_allow_http: bool,
+}
+
+impl std::fmt::Debug for EffectiveConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EffectiveConfig([REDACTED])")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,20 +154,31 @@ fn public_url_is_allowed(raw: &str, allow_http: bool) -> anyhow::Result<()> {
 fn effective_config() -> anyhow::Result<EffectiveConfig> {
     let cfg = get_config();
     let oidc = &cfg.oidc;
+    let api_secrets = if config::openbao::enabled() {
+        Some(config::openbao::current()?)
+    } else {
+        None
+    };
+    let client_id = if let Some(secrets) = &api_secrets {
+        secrets.get("client_id")?
+    } else {
+        oidc.client_id.clone()
+    };
     if !oidc.enabled {
         anyhow::bail!("OIDC is disabled");
     }
 
     let issuer = oidc.issuer.trim().to_string();
-    if issuer.is_empty() || oidc.client_id.trim().is_empty() || oidc.redirect_url.trim().is_empty()
-    {
+    if issuer.is_empty() || client_id.trim().is_empty() || oidc.redirect_url.trim().is_empty() {
         anyhow::bail!("OIDC issuer, client ID, and redirect URL are required");
     }
     if !oidc.client_secret.is_empty() && !oidc.client_secret_file.is_empty() {
         anyhow::bail!("set only one of ZO_OIDC_CLIENT_SECRET or ZO_OIDC_CLIENT_SECRET_FILE");
     }
 
-    let client_secret = if !oidc.client_secret_file.is_empty() {
+    let client_secret = if let Some(secrets) = &api_secrets {
+        secrets.get("client_secret")?
+    } else if !oidc.client_secret_file.is_empty() {
         fs::read_to_string(&oidc.client_secret_file)
             .map_err(|e| anyhow::anyhow!("failed to read OIDC client secret file: {e}"))?
             .trim()
@@ -216,7 +233,7 @@ fn effective_config() -> anyhow::Result<EffectiveConfig> {
 
     Ok(EffectiveConfig {
         issuer,
-        client_id: oidc.client_id.trim().to_string(),
+        client_id: client_id.trim().to_string(),
         client_secret,
         token_endpoint_auth_method: token_endpoint_auth_method.to_string(),
         redirect_url: oidc.redirect_url.trim().to_string(),
@@ -390,12 +407,20 @@ async fn exchange_code(
         post_params.push(("client_secret", cfg.client_secret.as_str()));
         client.post(&metadata.token_endpoint).form(&post_params)
     };
-    Ok(request
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<TokenResponse>()
-        .await?)
+    let response = request.send().await?;
+    // Only this endpoint uses the client credential. Discovery/userinfo denial
+    // is not evidence of a stale client secret. Never replay an authorization code.
+    observe_client_auth_status(
+        response.status().as_u16(),
+        config::openbao::trigger_auth_refresh,
+    );
+    Ok(response.error_for_status()?.json::<TokenResponse>().await?)
+}
+
+fn observe_client_auth_status(status: u16, trigger: impl FnOnce()) {
+    if matches!(status, 401 | 403) {
+        trigger();
+    }
 }
 
 fn claim_contains(value: &Value, expected: &str) -> bool {
@@ -865,6 +890,15 @@ pub async fn token_validator(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_endpoint_auth_failures_signal_once_without_retrying() {
+        for status in [200, 400, 401, 403, 429, 500] {
+            let mut signals = 0;
+            observe_client_auth_status(status, || signals += 1);
+            assert_eq!(signals, usize::from(matches!(status, 401 | 403)));
+        }
+    }
 
     #[test]
     fn pkce_challenge_is_base64url_sha256() {

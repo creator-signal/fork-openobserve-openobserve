@@ -1,11 +1,16 @@
 name: Creator Signal OIDC CI
 
+concurrency:
+  group: creator-signal-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
   push:
     branches:
       - main
       - creator-signal/oidc-main
+      - creator-signal/main
 
 permissions:
   contents: read
@@ -17,6 +22,11 @@ jobs:
   rust:
     name: Rust OSS and OIDC
     runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
@@ -51,6 +61,8 @@ jobs:
             cargo test "$@" | tee "$log"
             grep -Eq 'test result: ok\. [1-9][0-9]* passed' "$log"
           }
+          run_tests root-redaction --locked -p config root_credential_is_not_serialized
+          run_tests enrichment --locked -p enrichment
           run_tests oidc --locked -p openobserve-api-common --features oidc auth::oidc::tests
           run_tests automation --locked -p openobserve-api-common --features oidc auth::automation::tests
           run_tests middleware --locked -p openobserve-api-http --features oidc handler::http::router::middlewares::scoped_automation::tests
@@ -80,6 +92,8 @@ jobs:
           services/auth.spec.ts
           services/http.spec.ts
           views/Login.spec.ts
+      - name: Test deterministic RUM SDK selection
+        run: node --test ../tests/ui-testing/playwright-tests/utils/rum-sdk-version.test.cjs
 
   container:
     name: Container definition
@@ -89,3 +103,28 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Validate OIDC image definition
         run: docker buildx build --check --file deploy/build/Dockerfile.oidc .
+      - name: Validate collector image definition
+        run: docker buildx build --check --file collector/Dockerfile .
+
+  credentials:
+    name: OpenBao memory and collector acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.9
+          cache-dependency-path: collector/openbaoauthextension/go.sum
+      - name: Test exact Rust provider against certificate-authenticated HTTPS
+        run: cargo +1.98.1 test --locked --manifest-path tests/openbao-provider/Cargo.toml --target-dir .tmp/7-openbao-memory/cargo
+      - name: Build the pinned collector distribution
+        run: go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
+      - name: Exercise collector ingestion, rotation, restart, scope and redaction
+        working-directory: collector/openbaoauthextension
+        env:
+          OPENBAO_COLLECTOR_BINARY: ${{ github.workspace }}/.tmp/7-openbao-memory/collector-distribution/otelcol-contrib
+        run: go test -race -count=1 -v ./...

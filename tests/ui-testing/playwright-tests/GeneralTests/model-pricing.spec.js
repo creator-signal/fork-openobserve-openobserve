@@ -348,6 +348,7 @@ test.describe("Model Pricing — Duplicate & Clone", () => {
             const pm = new PageManager(page);
             // Duplicate → "(Copy)" suffix in editor → save → both entries in list
             await pm.modelPricingPage.gotoEditorDuplicate(srcId);
+            await pm.modelPricingPage.verifyNameInputValue(`${name} (Copy)`);
             const dupName = await pm.modelPricingPage.nameInput.locator('input').first().inputValue();
             expect(dupName).toMatch(/copy|Copy|\(copy\)/i);
             await pm.modelPricingPage.fillPattern(`^mp_dup_copy_${Date.now()}.*`);
@@ -362,16 +363,22 @@ test.describe("Model Pricing — Duplicate & Clone", () => {
             await pm.modelPricingPage.switchToBuiltInTab();
             const firstRow = pm.modelPricingPage.builtInTable.locator('tbody tr').first();
             await expect(firstRow).toBeVisible({ timeout: 10000 });
-            const builtInName = (await firstRow.locator('td').first().textContent())?.trim() || '';
+            const nameCell = firstRow.locator('[data-test="o2-table-cell-name"]');
+            await expect(nameCell).not.toHaveText('');
+            const builtInName = (await nameCell.textContent()).trim();
             await pm.modelPricingPage.cloneBtnForRow(firstRow).click();
             await pm.modelPricingPage.verifyEditorOnPage();
+            // The editor shell renders before its asynchronous model prefill.
+            // Do not submit the still-empty form while that request is in flight.
+            await pm.modelPricingPage.verifyNameInputValue(`${builtInName} (Copy)`);
             await pm.modelPricingPage.clickSave();
             await expect(pm.modelPricingPage.listTitle).toBeVisible({ timeout: 15000 });
             const afterClone = await apiListModels();
             const cloned = afterClone.find(
                 m => m.name === `${builtInName} (Copy)` && (m.source === 'org' || !m.source)
             );
-            clonedId = cloned?.id ?? afterClone.find(m => m.name?.endsWith(' (Copy)'))?.id;
+            expect(cloned?.id).toBeTruthy();
+            clonedId = cloned.id;
         } finally {
             if (srcId)    await apiDeleteModel(srcId);
             if (copyId)   await apiDeleteModel(copyId);

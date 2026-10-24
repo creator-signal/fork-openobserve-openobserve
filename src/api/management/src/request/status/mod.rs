@@ -273,15 +273,32 @@ impl Rum {
     )
 )]
 pub async fn healthz() -> impl IntoResponse {
-    axum::Json(HealthzResponse {
-        status: "ok".to_string(),
-    })
+    let ready = config::openbao::ready();
+    (
+        if ready {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        },
+        axum::Json(HealthzResponse {
+            status: if ready {
+                "ok"
+            } else {
+                "credentials_unavailable"
+            }
+            .to_string(),
+        }),
+    )
 }
 
 /// Healthz HEAD
 /// Vector pipeline healthcheck support
 pub async fn healthz_head() -> impl IntoResponse {
-    StatusCode::OK
+    if config::openbao::ready() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
 /// Healthz of the node for scheduled status

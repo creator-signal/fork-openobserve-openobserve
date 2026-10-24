@@ -1,0 +1,51 @@
+{
+  "repository": "https://github.com/openobserve/vector",
+  "revision": "5b87303cb89c1279407f9b64f267ff6a546fc679",
+  "files": [
+    {
+      "path": "vendor\\vector-enrichment\\Cargo.toml",
+      "sha256": "84f24254337dc04bf85a604b76c033a7881f4e832b472cccc675bed357d3bdec",
+      "upstreamPath": "lib/vector-vrl/enrichment/Cargo.toml"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\find_enrichment_table_records.rs",
+      "sha256": "4e68b8a959896786d2cf4916f2b022b051b81ded88093a7ff9acde1fa341ce5e",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/find_enrichment_table_records.rs"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\get_enrichment_table_record.rs",
+      "sha256": "59462294c208917f03ba44b602076689816694d5737504517a4cf57b989670f4",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/get_enrichment_table_record.rs"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\lib.rs",
+      "sha256": "d08a838ea4d0a722a811cb8cb2a3d55f29a65b274133d422c73cefc14c24f65f",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/lib.rs"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\tables.rs",
+      "sha256": "bea7e7dd6f61275f402059ae3cd98cd4bb07432a5d7d438014e08b93173b49d5",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/tables.rs"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\test_util.rs",
+      "sha256": "ec6795ee4a47159c9c2d165db52b6157d273f89ce8584049e56c3c532689fce2",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/test_util.rs"
+    },
+    {
+      "path": "vendor\\vector-enrichment\\src\\vrl_util.rs",
+      "sha256": "e8faeafb7b5b37c48818fb5e14d6459b6b11ff95ae37da1799d98a0cb1482a9a",
+      "upstreamPath": "lib/vector-vrl/enrichment/src/vrl_util.rs"
+    },
+    {
+      "path": "vendor\\vector-vrl-category\\Cargo.toml",
+      "sha256": "a7f620bf994c742cee9ed57d12847a18ee76e09ad2ff50ce8913cf362e86d2eb",
+      "upstreamPath": "lib/vector-vrl/category/Cargo.toml"
+    },
+    {
+      "path": "vendor\\vector-vrl-category\\src\\lib.rs",
+      "sha256": "4e56d8d6a5c6a3994f03f0d0c88e4fd07a27c711b8bbcefe41a5b5e477382cfd",
+      "upstreamPath": "lib/vector-vrl/category/src/lib.rs"
+    }
+  ]
+}

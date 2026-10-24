@@ -853,6 +853,7 @@ pub struct Auth {
     #[env_config(name = "ZO_ROOT_USER_EMAIL")]
     pub root_user_email: String,
     #[env_config(name = "ZO_ROOT_USER_PASSWORD")]
+    #[serde(skip_serializing)]
     pub root_user_password: String,
     #[env_config(name = "ZO_ROOT_USER_TOKEN")]
     pub root_user_token: String,
@@ -2883,7 +2884,18 @@ pub fn init() -> Config {
         log::error!("Failed to load config {e}");
         // do nothing
     }
+    crate::openbao::validate_reload().expect("OpenBao source configuration changed");
     let mut cfg = Config::init().expect("config init error");
+
+    if crate::openbao::enabled() {
+        let secrets = crate::openbao::current().expect("OpenBao startup snapshot unavailable");
+        cfg.auth.root_user_email = secrets
+            .get("root_email")
+            .expect("OpenBao root identity unavailable");
+        cfg.auth.root_user_password = secrets
+            .get("root_password")
+            .expect("OpenBao root credential unavailable");
+    }
 
     // set local mode
     if cfg.common.local_mode {
@@ -3984,6 +3996,21 @@ pub fn ensure_not_empty(s: &str, name: &str) -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn root_credential_is_not_serialized() {
+        let auth = super::Auth {
+            root_user_password: "synthetic-serialization-sentinel".into(),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_value(auth).unwrap();
+        assert!(serialized.get("root_user_password").is_none());
+        assert!(
+            !serialized
+                .to_string()
+                .contains("synthetic-serialization-sentinel")
+        );
+    }
+
     /// Every `#[env_config]` default must parse.
     ///
     /// The macro reads defaults from a **string literal**, so a Rust digit
