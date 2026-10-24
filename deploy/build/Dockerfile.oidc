@@ -12,7 +12,7 @@ FROM docker.io/library/rust:trixie@sha256:931c2c0531a8b143e044f0f3914dfe802f15bb
 # Its sccache wrapper was disabled; BuildKit owns the existing Cargo caches.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      protobuf-compiler libboost-all-dev pkg-config cmake libclang-dev libssl-dev && \
+      protobuf-compiler libprotobuf-dev libboost-all-dev pkg-config cmake libclang-dev libssl-dev && \
     rm -rf /var/lib/apt/lists/* && \
     rustup toolchain install nightly-2026-05-20 --profile minimal --component rustfmt,clippy,llvm-tools && \
     rustup default nightly-2026-05-20
