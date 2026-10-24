@@ -103,7 +103,7 @@ The historical `main` branch is unchanged. Downstream changes use Issues and PRs
 
 After separately authorizing publication, run the existing `release-oidc.yml` workflow's
 `qualify-and-publish` operation from `creator-signal/main`, supplying a new tag such as
-`openobserve-main-72f7bff3787e-cs.4` (only if still unused). Do not create or push tags manually. The workflow requires the
+`openobserve-main-72f7bff3787e-cs.5` (only if still unused). Do not create or push tags manually. The workflow requires the
 exact current release tip and successful push CI and security audit for that revision. It reserves the immutable tag
 before registry writes and creates the release after building the artifacts. A matching completed release is a no-op; partial publication
 requires reviewed forward recovery. Never overwrite a partial release to make a retry pass.
@@ -116,6 +116,17 @@ include definitions by installing `libprotobuf-dev` explicitly. The existing con
 now compiles a message importing both `google.protobuf.Duration` and `google.protobuf.Timestamp`,
 rather than relying only on `protoc --version`. Retry through the same registered workflow
 with a fresh tag only after the reviewed repair and exact release-tip CI/audit pass.
+
+The `cs.4` retry at `b3f4f649cb59bd2fb9ac132bc51958b626f648f5` built and pushed the
+application plus its provenance, but [run 40077265919](https://github.com/creator-signal/fork-openobserve-openobserve/actions/runs/40077265919)
+failed because the clean collector build context lacked the output directory's parent.
+The partial application digest is
+`sha256:da283f41846cfbd05d2797965c214650b372856ccf7d5c67e75df2af74a1d155`;
+it has no completed matched collector release and must not be selected for adoption.
+Issue #15 creates that parent explicitly and adds a full scratch-image build/execution
+check in the existing CI job. The same publisher now builds and attests the collector
+first, so collector failures happen before the expensive application build. Preserve
+both incomplete tags and retry with fresh `cs.5` after exact-tip qualification.
 
 The release workflow refuses a tag whose upstream commit differs from the marker file or whose
 commit does not descend from that exact upstream commit. It publishes a Linux AMD64 GHCR
