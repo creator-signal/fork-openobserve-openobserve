@@ -116,6 +116,16 @@ jobs:
             test "$(rustup show active-toolchain | cut -d " " -f 1)" = nightly-2026-05-20-x86_64-unknown-linux-gnu
             rustc --version
             protoc --version
+            test -s /usr/include/google/protobuf/duration.proto
+            test -s /usr/include/google/protobuf/timestamp.proto
+            printf "%s\n" \
+              "syntax = \"proto3\";" \
+              "import \"google/protobuf/duration.proto\";" \
+              "import \"google/protobuf/timestamp.proto\";" \
+              "message ReleaseImportProbe { google.protobuf.Duration duration = 1; google.protobuf.Timestamp timestamp = 2; }" \
+              > /tmp/release-import-probe.proto
+            protoc --proto_path=/tmp --include_imports --descriptor_set_out=/dev/null \
+              /tmp/release-import-probe.proto
             cmake --version
             pkg-config --exists openssl
             test -n "$(find /usr/lib -name "libclang.so*" -print -quit)"

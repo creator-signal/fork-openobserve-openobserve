@@ -103,10 +103,19 @@ The historical `main` branch is unchanged. Downstream changes use Issues and PRs
 
 After separately authorizing publication, run the existing `release-oidc.yml` workflow's
 `qualify-and-publish` operation from `creator-signal/main`, supplying a new tag such as
-`openobserve-main-72f7bff3787e-cs.2`. Do not create or push tags manually. The workflow requires the
+`openobserve-main-72f7bff3787e-cs.4` (only if still unused). Do not create or push tags manually. The workflow requires the
 exact current release tip and successful push CI and security audit for that revision. It reserves the immutable tag
 before registry writes and creates the release after building the artifacts. A matching completed release is a no-op; partial publication
 requires reviewed forward recovery. Never overwrite a partial release to make a retry pass.
+
+Publication run [40070568007](https://github.com/creator-signal/fork-openobserve-openobserve/actions/runs/40070568007)
+reserved `openobserve-main-72f7bff3787e-cs.3` at source
+`31ef1034e1818016c88c126214a8b8b82a310386`, then failed before either image was pushed.
+Preserve that tag as an incomplete attempt. Issue #13 repairs the missing standard protobuf
+include definitions by installing `libprotobuf-dev` explicitly. The existing container check
+now compiles a message importing both `google.protobuf.Duration` and `google.protobuf.Timestamp`,
+rather than relying only on `protoc --version`. Retry through the same registered workflow
+with a fresh tag only after the reviewed repair and exact release-tip CI/audit pass.
 
 The release workflow refuses a tag whose upstream commit differs from the marker file or whose
 commit does not descend from that exact upstream commit. It publishes a Linux AMD64 GHCR
