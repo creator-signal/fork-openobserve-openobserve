@@ -142,6 +142,30 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - name: Build and publish the certificate-authenticated collector
+        if: steps.contract.outputs.existing != 'true'
+        id: collector
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: collector/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.contract.outputs.collector_image }}:${{ env.RELEASE_TAG }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          provenance: mode=max
+          cache-from: type=gha,scope=collector-container
+          cache-to: type=gha,mode=max,scope=collector-container
+
+      - name: Attest collector provenance
+        if: steps.contract.outputs.existing != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.contract.outputs.collector_image }}
+          subject-digest: ${{ steps.collector.outputs.digest }}
+          push-to-registry: true
+
       - name: Build and publish image
         if: steps.contract.outputs.existing != 'true'
         id: image
@@ -167,30 +191,6 @@ jobs:
         with:
           subject-name: ${{ steps.contract.outputs.image }}
           subject-digest: ${{ steps.image.outputs.digest }}
-          push-to-registry: true
-
-      - name: Build and publish the certificate-authenticated collector
-        if: steps.contract.outputs.existing != 'true'
-        id: collector
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: collector/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ steps.contract.outputs.collector_image }}:${{ env.RELEASE_TAG }}
-          build-args: SOURCE_REVISION=${{ github.sha }}
-          provenance: mode=max
-          cache-from: type=gha,scope=collector-container
-          cache-to: type=gha,mode=max,scope=collector-container
-
-      - name: Attest collector provenance
-        if: steps.contract.outputs.existing != 'true'
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-name: ${{ steps.contract.outputs.collector_image }}
-          subject-digest: ${{ steps.collector.outputs.digest }}
           push-to-registry: true
 
       - uses: sigstore/cosign-installer@v3
