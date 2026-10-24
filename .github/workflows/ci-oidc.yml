@@ -105,6 +105,21 @@ jobs:
         run: docker buildx build --check --file deploy/build/Dockerfile.oidc .
       - name: Validate collector image definition
         run: docker buildx build --check --file collector/Dockerfile .
+      - name: Exercise the release toolchain and native dependencies
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          docker buildx build --target toolchain --load \
+            --tag creator-signal-openobserve-toolchain-check \
+            --file deploy/build/Dockerfile.oidc .
+          docker run --rm --entrypoint sh creator-signal-openobserve-toolchain-check -ec '
+            test "$(rustup show active-toolchain | cut -d " " -f 1)" = nightly-2026-05-20-x86_64-unknown-linux-gnu
+            rustc --version
+            protoc --version
+            cmake --version
+            pkg-config --exists openssl
+            test -n "$(find /usr/lib -name "libclang.so*" -print -quit)"
+          '
 
   credentials:
     name: OpenBao memory and collector acceptance
