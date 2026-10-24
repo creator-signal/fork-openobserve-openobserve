@@ -2,7 +2,8 @@ FROM golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a6
 WORKDIR /src
 ENV CGO_ENABLED=0
 COPY collector/ ./collector/
-RUN go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
+RUN mkdir -p /src/.tmp/7-openbao-memory && \
+    go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
 RUN cd collector/openbaoauthextension && go build -trimpath -o /src/.tmp/7-openbao-memory/collector-healthcheck ./cmd/healthcheck
 
 FROM scratch

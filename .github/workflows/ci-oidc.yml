@@ -105,6 +105,26 @@ jobs:
         run: docker buildx build --check --file deploy/build/Dockerfile.oidc .
       - name: Validate collector image definition
         run: docker buildx build --check --file collector/Dockerfile .
+      - name: Build and smoke-test the complete collector image
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          image=creator-signal-openobserve-collector-check
+          docker buildx build --load --tag "$image" --file collector/Dockerfile \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" .
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --entrypoint /otelcol-contrib "$image" --version
+          test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
+            '["/otelcol-contrib","--feature-gates=+extension.healthcheck.useComponentStatus"]'
+          test "$(docker image inspect --format '{{json .Config.Healthcheck.Test}}' "$image")" = \
+            '["CMD","/collector-healthcheck"]'
+          set +e
+          output="$(docker run --rm --network none --read-only --cap-drop ALL \
+            --entrypoint /collector-healthcheck "$image" 2>&1)"
+          status=$?
+          set -e
+          test "$status" -eq 1
+          test -z "$output"
       - name: Exercise the release toolchain and native dependencies
         timeout-minutes: 20
         run: |
