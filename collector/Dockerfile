@@ -3,6 +3,7 @@ WORKDIR /src
 ENV CGO_ENABLED=0
 COPY collector/ ./collector/
 RUN go run go.opentelemetry.io/collector/cmd/builder@v0.157.0 --config collector/builder-config.yaml
+RUN cd collector/openbaoauthextension && go build -trimpath -o /src/.tmp/7-openbao-memory/collector-healthcheck ./cmd/healthcheck
 
 FROM scratch
 ARG SOURCE_REVISION
@@ -10,6 +11,8 @@ LABEL org.opencontainers.image.source="https://github.com/creator-signal/fork-op
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.title="Creator Signal OpenBao OTLP collector"
 COPY --from=build /src/.tmp/7-openbao-memory/collector-distribution/otelcol-contrib /otelcol-contrib
+COPY --from=build /src/.tmp/7-openbao-memory/collector-healthcheck /collector-healthcheck
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 10001:10001
-ENTRYPOINT ["/otelcol-contrib"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 CMD ["/collector-healthcheck"]
+ENTRYPOINT ["/otelcol-contrib", "--feature-gates=+extension.healthcheck.useComponentStatus"]

@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/extension/extensionauth"
 	"go.opentelemetry.io/otel/metric"
@@ -129,6 +130,29 @@ type authenticator struct {
 	stopped      bool
 	lifecycle    lifecycle
 	registration metric.Registration
+	host         component.Host
+	status       componentstatus.Status
+}
+
+// Publish only transitions and a fixed error; upstream bodies and secret paths
+// must never become health response fields or collector log messages.
+func (a *authenticator) reportReadiness() {
+	a.mu.Lock()
+	status := componentstatus.StatusOK
+	if a.stopped || a.state.secret == "" || a.now().Sub(a.state.fetched) >= a.cfg.MaxStale {
+		status = componentstatus.StatusRecoverableError
+	}
+	changed := a.status != status
+	a.status = status
+	host := a.host
+	a.mu.Unlock()
+	if changed {
+		event := componentstatus.NewEvent(status)
+		if status != componentstatus.StatusOK {
+			event = componentstatus.NewRecoverableErrorEvent(errUnavailable)
+		}
+		componentstatus.ReportStatus(host, event)
+	}
 }
 
 type lifecycle struct {
@@ -408,7 +432,7 @@ func (a *authenticator) refresh(ctx context.Context) (result error) {
 	a.mu.Unlock()
 	return nil
 }
-func (a *authenticator) Start(ctx context.Context, _ component.Host) error {
+func (a *authenticator) Start(ctx context.Context, host component.Host) error {
 	if err := a.cfg.Validate(); err != nil {
 		return err
 	}
@@ -419,18 +443,25 @@ func (a *authenticator) Start(ctx context.Context, _ component.Host) error {
 	a.cancel = cancel
 	a.done = make(chan struct{})
 	a.mu.Lock()
+	a.host = host
 	a.wake = make(chan struct{}, 1)
 	a.mu.Unlock()
 	go func() {
 		defer close(a.done)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		timer := time.NewTimer(a.delay())
+		defer timer.Stop()
 		for {
-			timer := time.NewTimer(a.delay())
 			select {
 			case <-lifetime.Done():
 				timer.Stop()
 				return
 			case <-a.wake:
 				timer.Stop()
+			case <-ticker.C:
+				a.reportReadiness()
+				continue
 			case <-timer.C:
 			}
 			a.mu.RLock()
@@ -439,6 +470,8 @@ func (a *authenticator) Start(ctx context.Context, _ component.Host) error {
 			if !blocked {
 				a.refresh(lifetime)
 			} // Every outcome updates lifecycle telemetry.
+			a.reportReadiness()
+			timer.Reset(a.delay())
 		}
 	}()
 	return nil

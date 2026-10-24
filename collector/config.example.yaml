@@ -2,7 +2,15 @@
 # identities; no Bao session, password, ingestion token or runtime env file.
 extensions:
   health_check:
-    endpoint: 127.0.0.1:13133
+    http:
+      endpoint: 127.0.0.1:13133
+      status:
+        enabled: true
+        path: /
+    component_health:
+      include_recoverable_errors: true
+      include_permanent_errors: true
+      recovery_duration: 0s
   openbaoauth:
     address: https://bao.example.test:8200
     cert_role: observe-collector

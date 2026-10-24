@@ -60,7 +60,43 @@ func TestDistributionIngestionRotationRestartAndNoSecretFiles(t *testing.T) {
 	}
 	input := listener.Addr().String()
 	listener.Close()
+	healthListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthAddress := healthListener.Addr().String()
+	_, healthPort, _ := net.SplitHostPort(healthAddress)
+	healthListener.Close()
+	probe := filepath.Join(t.TempDir(), "collector-healthcheck")
+	if output, err := exec.Command("go", "build", "-o", probe, "./cmd/healthcheck").CombinedOutput(); err != nil {
+		t.Fatalf("readiness probe build failed: %v (%d output bytes)", err, len(output))
+	}
+	health := func(wantReady bool) {
+		t.Helper()
+		deadline := time.Now().Add(45 * time.Second)
+		for time.Now().Before(deadline) {
+			output, err := exec.Command(probe, "--port="+healthPort).CombinedOutput()
+			if len(output) != 0 {
+				t.Fatal("readiness probe produced output")
+			}
+			if (err == nil) == wantReady {
+				return
+			}
+			time.Sleep(150 * time.Millisecond)
+		}
+		t.Fatal("collector readiness did not reach expected state")
+	}
 	config := fmt.Sprintf(`extensions:
+  health_check:
+    http:
+      endpoint: %q
+      status:
+        enabled: true
+        path: /
+    component_health:
+      include_recoverable_errors: true
+      include_permanent_errors: true
+      recovery_duration: 0s
   openbaoauth:
     address: %q
     cert_role: fixture-collector
@@ -84,18 +120,18 @@ exporters:
     auth:
       authenticator: openbaoauth
 service:
-  extensions: [openbaoauth]
+  extensions: [health_check, openbaoauth]
   pipelines:
     logs:
       receivers: [otlp]
       exporters: [otlp_http]
-`, f.cfg.Address, f.cfg.CAFile, f.cfg.CertFile, f.cfg.KeyFile, f.cfg.ExportEndpoint, input, f.cfg.ExportEndpoint, receiverCA)
+`, healthAddress, f.cfg.Address, f.cfg.CAFile, f.cfg.CertFile, f.cfg.KeyFile, f.cfg.ExportEndpoint, input, f.cfg.ExportEndpoint, receiverCA)
 	filename := filepath.Join(directory, "collector.yaml")
 	if err := os.WriteFile(filename, []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
 	run := func() (func(), *bytes.Buffer) {
-		command := exec.Command(binary, "--config="+filename)
+		command := exec.Command(binary, "--feature-gates=+extension.healthcheck.useComponentStatus", "--config="+filename)
 		var output bytes.Buffer
 		command.Stdout = &output
 		command.Stderr = &output
@@ -133,12 +169,24 @@ service:
 	}
 	stop, output := run()
 	emit(1)
+	health(true)
 	f.mu.Lock()
 	f.generation = 2
 	f.mu.Unlock()
 	emit(2)
+	f.mu.Lock()
+	f.deny = true
+	f.mu.Unlock()
+	// Exercise the actual distribution and image probe after freshness expires.
+	time.Sleep(11 * time.Second)
+	health(false)
+	f.mu.Lock()
+	f.deny = false
+	f.mu.Unlock()
+	health(true)
+	emit(2)
 	stop()
-	if strings.Contains(output.String(), "fixture-ingest-token") || strings.Contains(output.String(), "fixture-bao-session") {
+	if strings.Contains(output.String(), "fixture-ingest-token") || strings.Contains(output.String(), "fixture-bao-session") || strings.Contains(output.String(), "do-not-log-upstream-secret") {
 		t.Fatal("collector logged a credential")
 	}
 	mu.Lock()
