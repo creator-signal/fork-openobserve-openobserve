@@ -495,6 +495,13 @@ fn build_smtp_transport(
         if !cfg.smtp_ca_file.is_empty() {
             let pem = std::fs::read(&cfg.smtp_ca_file)
                 .map_err(|_| anyhow::anyhow!("SMTP trust root unavailable"))?;
+            // Lettre accepts a PEM input containing zero certificates. Reject
+            // that case rather than silently falling back to public roots.
+            if !pem.windows(27).any(|part| part == b"-----BEGIN CERTIFICATE-----")
+                || !pem.windows(25).any(|part| part == b"-----END CERTIFICATE-----")
+            {
+                return Err(anyhow::anyhow!("SMTP trust root invalid"));
+            }
             let certificate = Certificate::from_pem(&pem)
                 .map_err(|_| anyhow::anyhow!("SMTP trust root invalid"))?;
             tls_builder = tls_builder.add_root_certificate(certificate);
