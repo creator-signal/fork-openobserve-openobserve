@@ -193,7 +193,8 @@ impl Fixture {
                                     body["data"]["data"]["smtp_username"] = "openobserve".into();
                                 }
                                 if state.smtp_mode == 1 {
-                                    body["data"]["data"]["smtp_password"] = format!("smtp-password-{generation:032}").into();
+                                    body["data"]["data"]["smtp_password"] =
+                                        format!("smtp-password-{generation:032}").into();
                                 }
                                 (200, body.to_string())
                             } else if route == "/v1/kv/data/oidc" {
@@ -319,11 +320,17 @@ async fn smtp_credentials_rotate_atomically_and_fail_closed_when_missing_or_stal
     fixture.state.lock().unwrap().generation = 2;
     provider.refresh().await.unwrap();
     let after = provider.current().unwrap();
-    assert_ne!(before.get("smtp_password").unwrap(), after.get("smtp_password").unwrap());
+    assert_ne!(
+        before.get("smtp_password").unwrap(),
+        after.get("smtp_password").unwrap()
+    );
     assert!(!format!("{after:?}").contains("smtp-password"));
     fixture.state.lock().unwrap().smtp_mode = 2;
     assert!(provider.refresh().await.is_err());
-    assert_eq!(provider.current().unwrap().get("smtp_password").unwrap(), after.get("smtp_password").unwrap());
+    assert_eq!(
+        provider.current().unwrap().get("smtp_password").unwrap(),
+        after.get("smtp_password").unwrap()
+    );
     {
         let mut stored = provider.snapshot.write().unwrap();
         let snapshot = stored.as_ref().unwrap();

@@ -205,9 +205,14 @@ impl Snapshot {
         let mut values = BTreeMap::new();
         // SMTP is optional for existing installations. A partial pair never
         // publishes, even when SMTP has not yet been enabled.
-        if runtime.data.contains_key("smtp_username") || runtime.data.contains_key("smtp_password") {
+        if runtime.data.contains_key("smtp_username") || runtime.data.contains_key("smtp_password")
+        {
             for key in ["smtp_username", "smtp_password"] {
-                let value = runtime.data.get(key).and_then(|v| v.as_str()).ok_or(Error::Record)?;
+                let value = runtime
+                    .data
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .ok_or(Error::Record)?;
                 if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
                     return Err(Error::Record);
                 }

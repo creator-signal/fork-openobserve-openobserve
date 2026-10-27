@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use chromiumoxide::{Page, browser::Browser, cdp::browser_protocol::page::PrintToPdfParams};
 use chrono::Timelike;
 use config::{
-    get_chrome_launch_options, get_config, send_smtp_email,
+    get_chrome_launch_options, get_config,
     meta::{
         dashboards::{
             datetime_now,
@@ -31,6 +31,7 @@ use config::{
         },
         folder::Folder,
     },
+    send_smtp_email,
     utils::time::now_micros,
 };
 use cron::Schedule;

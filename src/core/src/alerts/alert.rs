@@ -25,7 +25,7 @@ use chrono::{Duration, Local, TimeZone, Timelike, Utc};
 #[cfg(feature = "enterprise")]
 use common::utils::http::get_or_create_trace_id;
 use config::{
-    TIMESTAMP_COL_NAME, get_config, send_smtp_email,
+    TIMESTAMP_COL_NAME, get_config,
     meta::{
         alerts::{
             FrequencyType, Operator, QueryType, TriggerEvalResults,
@@ -39,6 +39,7 @@ use config::{
         sql::resolve_stream_names,
         stream::StreamType,
     },
+    send_smtp_email,
     utils::{
         base64,
         json::{Map, Value},

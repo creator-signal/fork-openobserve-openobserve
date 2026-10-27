@@ -469,9 +469,15 @@ pub fn smtp_client() -> Result<AsyncSmtpTransport<Tokio1Executor>, anyhow::Error
     let (username, password) = if crate::openbao::enabled() {
         let snapshot = crate::openbao::current()
             .map_err(|_| anyhow::anyhow!("SMTP credential snapshot unavailable"))?;
-        (snapshot.get("smtp_username")?, snapshot.get("smtp_password")?)
+        (
+            snapshot.get("smtp_username")?,
+            snapshot.get("smtp_password")?,
+        )
     } else {
-        (cfg.smtp.smtp_username.clone(), cfg.smtp.smtp_password.clone())
+        (
+            cfg.smtp.smtp_username.clone(),
+            cfg.smtp.smtp_password.clone(),
+        )
     };
     build_smtp_transport(&cfg.smtp, username, password, crate::openbao::enabled())
 }
@@ -493,7 +499,8 @@ fn build_smtp_transport(
                 .map_err(|_| anyhow::anyhow!("SMTP trust root invalid"))?;
             tls_builder = tls_builder.add_root_certificate(certificate);
         }
-        let tls_parameters = tls_builder.build()
+        let tls_parameters = tls_builder
+            .build()
             .map_err(|_| anyhow::anyhow!("SMTP TLS configuration invalid"))?;
         let mut transport_builder =
             AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.smtp_host)
@@ -539,23 +546,24 @@ fn build_smtp_transport(
             return Err(anyhow::anyhow!("OpenBao SMTP requires encrypted transport"));
         }
         if !username.is_empty() && !password.is_empty() {
-            transport_builder = transport_builder.credentials(Credentials::new(
-                username,
-                password,
-            ));
+            transport_builder = transport_builder.credentials(Credentials::new(username, password));
         }
         Ok(transport_builder.build())
     }
 }
 
-pub async fn send_smtp_email(email: lettre::Message) -> Result<lettre::transport::smtp::response::Response, anyhow::Error> {
+pub async fn send_smtp_email(
+    email: lettre::Message,
+) -> Result<lettre::transport::smtp::response::Response, anyhow::Error> {
     let client = smtp_client()?;
     match client.send(email).await {
         Ok(response) => Ok(response),
         Err(error) => {
             // Signal refresh only; never replay an SMTP transaction whose
             // delivery outcome may already be ambiguous.
-            if crate::openbao::enabled() && error.status().is_some_and(|code| code.to_string() == "535") {
+            if crate::openbao::enabled()
+                && error.status().is_some_and(|code| code.to_string() == "535")
+            {
                 crate::openbao::trigger_auth_refresh();
             }
             Err(anyhow::anyhow!("SMTP delivery failed"))
@@ -4051,43 +4059,104 @@ mod tests {
             smtp_port: 14300,
             ..Default::default()
         };
-        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+        assert!(
+            super::build_smtp_transport(
+                &settings,
+                "openobserve".into(),
+                "synthetic-password".into(),
+                true
+            )
+            .is_err()
+        );
         settings.smtp_encryption = "starttls".into();
-        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_ok());
+        assert!(
+            super::build_smtp_transport(
+                &settings,
+                "openobserve".into(),
+                "synthetic-password".into(),
+                true
+            )
+            .is_ok()
+        );
         let directory = tempfile::tempdir().unwrap();
         let ca = directory.path().join("root.pem");
         settings.smtp_ca_file = ca.to_str().unwrap().into();
-        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+        assert!(
+            super::build_smtp_transport(
+                &settings,
+                "openobserve".into(),
+                "synthetic-password".into(),
+                true
+            )
+            .is_err()
+        );
         std::fs::write(&ca, "not a certificate").unwrap();
-        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+        assert!(
+            super::build_smtp_transport(
+                &settings,
+                "openobserve".into(),
+                "synthetic-password".into(),
+                true
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn smtp_starttls_downgrade_is_denied_before_authentication() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use lettre::AsyncTransport;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut stream = BufReader::new(stream);
-            stream.get_mut().write_all(b"220 fixture SMTP\r\n").await.unwrap();
+            stream
+                .get_mut()
+                .write_all(b"220 fixture SMTP\r\n")
+                .await
+                .unwrap();
             let mut command = String::new();
             stream.read_line(&mut command).await.unwrap();
             assert!(command.starts_with("EHLO "));
-            stream.get_mut().write_all(b"250-fixture\r\n250 AUTH PLAIN LOGIN\r\n").await.unwrap();
+            stream
+                .get_mut()
+                .write_all(b"250-fixture\r\n250 AUTH PLAIN LOGIN\r\n")
+                .await
+                .unwrap();
             command.clear();
             let _ = stream.read_line(&mut command).await;
-            assert!(!command.starts_with("AUTH"), "credentials must never be sent before TLS");
+            assert!(
+                !command.starts_with("AUTH"),
+                "credentials must never be sent before TLS"
+            );
         });
         let settings = super::Smtp {
-            smtp_enabled: true, smtp_host: "localhost".into(), smtp_port: port,
-            smtp_encryption: "starttls".into(), ..Default::default()
+            smtp_enabled: true,
+            smtp_host: "localhost".into(),
+            smtp_port: port,
+            smtp_encryption: "starttls".into(),
+            ..Default::default()
         };
-        let client = super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).unwrap();
-        let message = lettre::Message::builder().from("alerts@example.test".parse().unwrap())
-            .to("operator@example.test".parse().unwrap()).subject("synthetic acceptance").body("synthetic".to_string()).unwrap();
-        assert!(tokio::time::timeout(std::time::Duration::from_secs(5), client.send(message)).await.unwrap().is_err());
+        let client = super::build_smtp_transport(
+            &settings,
+            "openobserve".into(),
+            "synthetic-password".into(),
+            true,
+        )
+        .unwrap();
+        let message = lettre::Message::builder()
+            .from("alerts@example.test".parse().unwrap())
+            .to("operator@example.test".parse().unwrap())
+            .subject("synthetic acceptance")
+            .body("synthetic".to_string())
+            .unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.send(message))
+                .await
+                .unwrap()
+                .is_err()
+        );
         server.await.unwrap();
     }
 
