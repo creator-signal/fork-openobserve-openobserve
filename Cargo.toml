@@ -611,6 +611,8 @@ zip = "9.0.5"
 zstd = "0.13"
 
 [patch.crates-io]
+zstd = { path = "vendor/zstd-compat" }
+zstd-safe = { path = "vendor/zstd-safe-compat" }
 utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui" }
 datafusion = { git = "https://github.com/openobserve/datafusion", rev = "869ec1a70482e1a26c4ac2fde3e9fd5545c33d7b" }
 datafusion-catalog = { git = "https://github.com/openobserve/datafusion", rev = "869ec1a70482e1a26c4ac2fde3e9fd5545c33d7b" }
