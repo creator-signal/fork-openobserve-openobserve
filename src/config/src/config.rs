@@ -4051,8 +4051,8 @@ pub fn ensure_not_empty(s: &str, name: &str) -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn smtp_api_mode_requires_tls_and_valid_trust_root() {
+    #[tokio::test]
+    async fn smtp_api_mode_requires_tls_and_valid_trust_root() {
         let mut settings = super::Smtp {
             smtp_enabled: true,
             smtp_host: "localhost".into(),
