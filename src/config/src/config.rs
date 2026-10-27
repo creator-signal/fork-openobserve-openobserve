@@ -497,8 +497,12 @@ fn build_smtp_transport(
                 .map_err(|_| anyhow::anyhow!("SMTP trust root unavailable"))?;
             // Lettre accepts a PEM input containing zero certificates. Reject
             // that case rather than silently falling back to public roots.
-            if !pem.windows(27).any(|part| part == b"-----BEGIN CERTIFICATE-----")
-                || !pem.windows(25).any(|part| part == b"-----END CERTIFICATE-----")
+            if !pem
+                .windows(27)
+                .any(|part| part == b"-----BEGIN CERTIFICATE-----")
+                || !pem
+                    .windows(25)
+                    .any(|part| part == b"-----END CERTIFICATE-----")
             {
                 return Err(anyhow::anyhow!("SMTP trust root invalid"));
             }
