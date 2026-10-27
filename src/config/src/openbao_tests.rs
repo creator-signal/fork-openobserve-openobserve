@@ -20,6 +20,7 @@ struct State {
     requests: usize,
     revokes: usize,
     slow_revoke: bool,
+    smtp_mode: u8,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -88,6 +89,7 @@ impl Fixture {
             storage_path: "kv/data/storage".into(),
             refresh: Duration::from_secs(5),
             max_stale: Duration::from_secs(10),
+            smtp_required: false,
         };
         let state = Arc::new(Mutex::new(State {
             generation: 1,
@@ -99,6 +101,7 @@ impl Fixture {
             requests: 0,
             revokes: 0,
             slow_revoke: false,
+            smtp_mode: 0,
         }));
         let shared = state.clone();
         let task = tokio::spawn(async move {
@@ -181,11 +184,18 @@ impl Fixture {
                             if state.oversized {
                                 (200, "x".repeat(MAX_BODY + 1))
                             } else if route == "/v1/kv/data/runtime" {
-                                (200, serde_json::json!({"data":{"data":{
+                                let mut body = serde_json::json!({"data":{"data":{
                                     "root_email":"fixture@example.test", "root_password":"fixture-root-password-never-log",
                                     "automation_ingest_token":format!("ingest-{generation:032}"),
                                     "automation_query_token":format!("query-{generation:032}"),
-                                    "automation_dashboard_token":format!("dashboard-{generation:032}")}}}).to_string())
+                                    "automation_dashboard_token":format!("dashboard-{generation:032}")}}});
+                                if state.smtp_mode > 0 {
+                                    body["data"]["data"]["smtp_username"] = "openobserve".into();
+                                }
+                                if state.smtp_mode == 1 {
+                                    body["data"]["data"]["smtp_password"] = format!("smtp-password-{generation:032}").into();
+                                }
+                                (200, body.to_string())
                             } else if route == "/v1/kv/data/oidc" {
                                 if state.partial {
                                     (200, "{\"data\":{\"data\":{}}}".into())
@@ -292,6 +302,52 @@ async fn incomplete_or_oversized_record_cannot_publish_partial_rotation() {
         provider.current().unwrap().get("secret_key").unwrap(),
         "storage-secret-1"
     );
+}
+
+#[tokio::test]
+async fn smtp_credentials_rotate_atomically_and_fail_closed_when_missing_or_stale() {
+    let fixture = Fixture::new().await;
+    let mut settings = fixture.settings.clone();
+    settings.smtp_required = true;
+    let provider = Provider::new(settings).unwrap();
+    assert!(provider.refresh().await.is_err());
+    assert!(provider.current().is_err());
+    fixture.state.lock().unwrap().smtp_mode = 1;
+    provider.refresh().await.unwrap();
+    let before = provider.current().unwrap();
+    assert_eq!(before.get("smtp_username").unwrap(), "openobserve");
+    fixture.state.lock().unwrap().generation = 2;
+    provider.refresh().await.unwrap();
+    let after = provider.current().unwrap();
+    assert_ne!(before.get("smtp_password").unwrap(), after.get("smtp_password").unwrap());
+    assert!(!format!("{after:?}").contains("smtp-password"));
+    fixture.state.lock().unwrap().smtp_mode = 2;
+    assert!(provider.refresh().await.is_err());
+    assert_eq!(provider.current().unwrap().get("smtp_password").unwrap(), after.get("smtp_password").unwrap());
+    {
+        let mut stored = provider.snapshot.write().unwrap();
+        let snapshot = stored.as_ref().unwrap();
+        *stored = Some(Arc::new(Snapshot {
+            values: snapshot.values.clone(),
+            obtained: Instant::now() - Duration::from_secs(11),
+            versions: snapshot.versions,
+        }));
+    }
+    assert!(provider.current().is_err());
+    fixture.state.lock().unwrap().smtp_mode = 1;
+    provider.refresh().await.unwrap();
+    assert!(provider.current().is_ok());
+    provider.shutdown().await.unwrap();
+    assert!(provider.current().is_err());
+}
+
+#[tokio::test]
+async fn partial_optional_smtp_pair_never_publishes() {
+    let fixture = Fixture::new().await;
+    fixture.state.lock().unwrap().smtp_mode = 2;
+    let provider = Provider::new(fixture.settings.clone()).unwrap();
+    assert!(provider.refresh().await.is_err());
+    assert!(provider.current().is_err());
 }
 
 #[tokio::test]
@@ -481,6 +537,10 @@ fn environment_sources_fail_closed() {
         "ZO_OIDC_AUTOMATION_INGEST_TOKEN_FILE",
         "ZO_OIDC_AUTOMATION_QUERY_TOKEN_FILE",
         "ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE",
+        "ZO_SMTP_USER_NAME",
+        "ZO_SMTP_PASSWORD",
+        "ZO_SMTP_PASSWORD_FILE",
+        "ZO_SMTP_ENABLED",
         "ZO_S3_PROVIDER",
         "ZO_S3_ACCOUNTS",
         "ZO_OPENBAO_REFRESH_SECS",

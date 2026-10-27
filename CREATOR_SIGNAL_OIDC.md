@@ -140,6 +140,31 @@ from the historical default branch. That activation is a separate governed opera
 
 ## Direct OpenBao credentials
 
+### SMTP credentials
+
+With `ZO_OPENBAO_ENABLED=true` and `ZO_SMTP_ENABLED=true`, the existing runtime
+record must also contain a complete `smtp_username` / `smtp_password` pair.
+The pair joins the same atomic, versioned private-memory snapshot. Incomplete
+refreshes retain only bounded last-good state; stale snapshots deny sending.
+Cold start fails closed if SMTP is enabled and its pair is absent. Existing
+SMTP-disabled records remain compatible. Environment/file SMTP credentials
+are rejected in API mode.
+
+Set the non-secret `ZO_SMTP_HOST`, `ZO_SMTP_PORT`, `ZO_SMTP_FROM_EMAIL` and
+`ZO_SMTP_ENCRYPTION=starttls` (or `ssltls`) through the consumer's governed
+configuration. `ZO_SMTP_CA_FILE` optionally supplies an additional public PEM
+trust root for a private gateway. Hostname and chain verification remain
+enabled; API mode rejects plaintext delivery. An SMTP client is constructed
+for each send so credential refresh applies without restarting. A 535 response
+signals the existing debounced OpenBao refresh without replaying the message;
+other failed or ambiguous sends return a fixed diagnostic without provider
+payloads. Gateway queueing and alert cooldown own retry/deduplication policy.
+
+The existing CI tests cover SMTP snapshot rotation, incomplete/stale denial,
+recovery, exported-source rejection, invalid/missing trust roots and refusal
+to authenticate when a server omits STARTTLS. Consumer integrated Local and
+production delivery acceptance are separate gates; source does not enable SMTP.
+
 API delivery is opt-in; legacy file mode remains available for rollback. Both executables use
 OpenBao certificate authentication over verified HTTPS. Neither writes fetched values or the
 resulting session token to files, environment variables, or command arguments. The existing

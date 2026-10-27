@@ -26,10 +26,10 @@ use dotenv_config::EnvConfig;
 use hashbrown::{HashMap, HashSet};
 use itertools::chain;
 use lettre::{
-    AsyncSmtpTransport, Tokio1Executor,
+    AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
     transport::smtp::{
         authentication::Credentials,
-        client::{Tls, TlsParameters},
+        client::{Certificate, Tls, TlsParameters},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -462,37 +462,64 @@ async fn init_chrome_launch_options() -> Option<BrowserConfig> {
     }
 }
 
-pub static SMTP_CLIENT: Lazy<Option<AsyncSmtpTransport<Tokio1Executor>>> = Lazy::new(|| {
+/// Build per send so atomic OpenBao rotations and bounded-stale denial apply
+/// to SMTP just as they do to S3 and OIDC. Never cache SMTP credentials.
+pub fn smtp_client() -> Result<AsyncSmtpTransport<Tokio1Executor>, anyhow::Error> {
     let cfg = get_config();
-    if !cfg.smtp.smtp_enabled {
-        None
+    let (username, password) = if crate::openbao::enabled() {
+        let snapshot = crate::openbao::current()
+            .map_err(|_| anyhow::anyhow!("SMTP credential snapshot unavailable"))?;
+        (snapshot.get("smtp_username")?, snapshot.get("smtp_password")?)
     } else {
-        let tls_parameters = TlsParameters::new(cfg.smtp.smtp_host.clone()).unwrap();
+        (cfg.smtp.smtp_username.clone(), cfg.smtp.smtp_password.clone())
+    };
+    build_smtp_transport(&cfg.smtp, username, password, crate::openbao::enabled())
+}
+
+fn build_smtp_transport(
+    cfg: &Smtp,
+    username: String,
+    password: String,
+    require_tls: bool,
+) -> Result<AsyncSmtpTransport<Tokio1Executor>, anyhow::Error> {
+    if !cfg.smtp_enabled {
+        Err(anyhow::anyhow!("SMTP configuration not enabled"))
+    } else {
+        let mut tls_builder = TlsParameters::builder(cfg.smtp_host.clone());
+        if !cfg.smtp_ca_file.is_empty() {
+            let pem = std::fs::read(&cfg.smtp_ca_file)
+                .map_err(|_| anyhow::anyhow!("SMTP trust root unavailable"))?;
+            let certificate = Certificate::from_pem(&pem)
+                .map_err(|_| anyhow::anyhow!("SMTP trust root invalid"))?;
+            tls_builder = tls_builder.add_root_certificate(certificate);
+        }
+        let tls_parameters = tls_builder.build()
+            .map_err(|_| anyhow::anyhow!("SMTP TLS configuration invalid"))?;
         let mut transport_builder =
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.smtp.smtp_host)
-                .port(cfg.smtp.smtp_port);
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.smtp_host)
+                .port(cfg.smtp_port);
 
         // Resolve effective TLS mode:
         // 1. If ZO_SMTP_ENCRYPTION is unset/auto, derive from port (465=ssltls, 587=starttls).
         // 2. If explicitly set, validate it against the port convention. If mismatched, log a
         //    warning and fall back to the port-derived value so the connection still works.
-        let port_derived = match cfg.smtp.smtp_port {
+        let port_derived = match cfg.smtp_port {
             465 => "ssltls",
             587 | 2587 => "starttls",
             _ => "",
         };
-        let effective_encryption = match cfg.smtp.smtp_encryption.as_str() {
+        let effective_encryption = match cfg.smtp_encryption.as_str() {
             "" | "auto" => port_derived,
             explicit => {
                 let mismatch = matches!(
-                    (explicit, cfg.smtp.smtp_port),
+                    (explicit, cfg.smtp_port),
                     ("ssltls", 587) | ("ssltls", 2587) | ("starttls", 465)
                 );
                 if mismatch {
                     log::warn!(
                         "[SMTP] ZO_SMTP_ENCRYPTION={explicit} conflicts with port {}; \
                          falling back to port-derived value '{port_derived}'",
-                        cfg.smtp.smtp_port
+                        cfg.smtp_port
                     );
                     port_derived
                 } else {
@@ -508,15 +535,33 @@ pub static SMTP_CLIENT: Lazy<Option<AsyncSmtpTransport<Tokio1Executor>>> = Lazy:
             transport_builder
         };
 
-        if !cfg.smtp.smtp_username.is_empty() && !cfg.smtp.smtp_password.is_empty() {
+        if require_tls && !matches!(effective_encryption, "starttls" | "ssltls") {
+            return Err(anyhow::anyhow!("OpenBao SMTP requires encrypted transport"));
+        }
+        if !username.is_empty() && !password.is_empty() {
             transport_builder = transport_builder.credentials(Credentials::new(
-                cfg.smtp.smtp_username.clone(),
-                cfg.smtp.smtp_password.clone(),
+                username,
+                password,
             ));
         }
-        Some(transport_builder.build())
+        Ok(transport_builder.build())
     }
-});
+}
+
+pub async fn send_smtp_email(email: lettre::Message) -> Result<lettre::transport::smtp::response::Response, anyhow::Error> {
+    let client = smtp_client()?;
+    match client.send(email).await {
+        Ok(response) => Ok(response),
+        Err(error) => {
+            // Signal refresh only; never replay an SMTP transaction whose
+            // delivery outcome may already be ambiguous.
+            if crate::openbao::enabled() && error.status().is_some_and(|code| code.to_string() == "535") {
+                crate::openbao::trigger_auth_refresh();
+            }
+            Err(anyhow::anyhow!("SMTP delivery failed"))
+        }
+    }
+}
 
 static SNS_CLIENT: tokio::sync::OnceCell<aws_sdk_sns::Client> = tokio::sync::OnceCell::const_new();
 
@@ -846,6 +891,8 @@ pub struct Smtp {
     pub smtp_from_email: String,
     #[env_config(name = "ZO_SMTP_ENCRYPTION", default = "")]
     pub smtp_encryption: String,
+    #[env_config(name = "ZO_SMTP_CA_FILE", default = "")]
+    pub smtp_ca_file: String,
 }
 
 #[derive(Serialize, EnvConfig, Default)]
@@ -3996,6 +4043,54 @@ pub fn ensure_not_empty(s: &str, name: &str) -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn smtp_api_mode_requires_tls_and_valid_trust_root() {
+        let mut settings = super::Smtp {
+            smtp_enabled: true,
+            smtp_host: "localhost".into(),
+            smtp_port: 14300,
+            ..Default::default()
+        };
+        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+        settings.smtp_encryption = "starttls".into();
+        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_ok());
+        let directory = tempfile::tempdir().unwrap();
+        let ca = directory.path().join("root.pem");
+        settings.smtp_ca_file = ca.to_str().unwrap().into();
+        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+        std::fs::write(&ca, "not a certificate").unwrap();
+        assert!(super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).is_err());
+    }
+
+    #[tokio::test]
+    async fn smtp_starttls_downgrade_is_denied_before_authentication() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use lettre::AsyncTransport;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            stream.get_mut().write_all(b"220 fixture SMTP\r\n").await.unwrap();
+            let mut command = String::new();
+            stream.read_line(&mut command).await.unwrap();
+            assert!(command.starts_with("EHLO "));
+            stream.get_mut().write_all(b"250-fixture\r\n250 AUTH PLAIN LOGIN\r\n").await.unwrap();
+            command.clear();
+            let _ = stream.read_line(&mut command).await;
+            assert!(!command.starts_with("AUTH"), "credentials must never be sent before TLS");
+        });
+        let settings = super::Smtp {
+            smtp_enabled: true, smtp_host: "localhost".into(), smtp_port: port,
+            smtp_encryption: "starttls".into(), ..Default::default()
+        };
+        let client = super::build_smtp_transport(&settings, "openobserve".into(), "synthetic-password".into(), true).unwrap();
+        let message = lettre::Message::builder().from("alerts@example.test".parse().unwrap())
+            .to("operator@example.test".parse().unwrap()).subject("synthetic acceptance").body("synthetic".to_string()).unwrap();
+        assert!(tokio::time::timeout(std::time::Duration::from_secs(5), client.send(message)).await.unwrap().is_err());
+        server.await.unwrap();
+    }
+
     #[test]
     fn root_credential_is_not_serialized() {
         let auth = super::Auth {

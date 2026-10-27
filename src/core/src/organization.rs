@@ -36,8 +36,8 @@ use {
     common::meta::organization::{
         OrganizationInviteResponse, OrganizationInviteUserRecord, OrganizationInvites,
     },
-    config::{SMTP_CLIENT, get_config},
-    lettre::{AsyncTransport, Message, message::SinglePart},
+    config::{get_config, send_smtp_email},
+    lettre::{Message, message::SinglePart},
     o2_enterprise::enterprise::cloud::{
         InvitationRecord, OrgInviteStatus, billing_group::add_as_billing_member,
         billings::get_billing_by_org_id, org_invites,
@@ -1041,7 +1041,7 @@ pub async fn generate_invitation(
             let email = email.singlepart(SinglePart::html(msg)).unwrap();
 
             // Send the email
-            match SMTP_CLIENT.as_ref().unwrap().send(email).await {
+            match send_smtp_email(email).await {
                 Ok(resp) => {
                     log::info!("sent invite email response code: {}", resp.code());
                 }

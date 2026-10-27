@@ -45,6 +45,7 @@ pub struct Settings {
     pub storage_path: String,
     pub refresh: Duration,
     pub max_stale: Duration,
+    pub smtp_required: bool,
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), Error> {
@@ -110,6 +111,9 @@ impl Settings {
             "ZO_OIDC_AUTOMATION_INGEST_TOKEN_FILE",
             "ZO_OIDC_AUTOMATION_QUERY_TOKEN_FILE",
             "ZO_OIDC_AUTOMATION_DASHBOARD_TOKEN_FILE",
+            "ZO_SMTP_USER_NAME",
+            "ZO_SMTP_PASSWORD",
+            "ZO_SMTP_PASSWORD_FILE",
         ] {
             if std::env::var_os(name).is_some_and(|v| !v.is_empty()) {
                 return Err(Error::Configuration);
@@ -133,6 +137,11 @@ impl Settings {
             storage_path: get("ZO_OPENBAO_STORAGE_PATH")?,
             refresh: env_duration("ZO_OPENBAO_REFRESH_SECS", 60)?,
             max_stale: env_duration("ZO_OPENBAO_MAX_STALENESS_SECS", 300)?,
+            smtp_required: match std::env::var("ZO_SMTP_ENABLED").as_deref() {
+                Err(_) | Ok("false") => false,
+                Ok("true") => true,
+                _ => return Err(Error::Configuration),
+            },
         };
         settings.validate()?;
         Ok(Some(settings))
@@ -194,6 +203,17 @@ impl Snapshot {
             return Err(Error::Record);
         }
         let mut values = BTreeMap::new();
+        // SMTP is optional for existing installations. A partial pair never
+        // publishes, even when SMTP has not yet been enabled.
+        if runtime.data.contains_key("smtp_username") || runtime.data.contains_key("smtp_password") {
+            for key in ["smtp_username", "smtp_password"] {
+                let value = runtime.data.get(key).and_then(|v| v.as_str()).ok_or(Error::Record)?;
+                if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+                    return Err(Error::Record);
+                }
+                values.insert(key.to_string(), value.to_string());
+            }
+        }
         for (record, keys) in [
             (
                 runtime,
@@ -453,7 +473,12 @@ impl Provider {
                 None,
             )
             .await?;
-        Snapshot::assemble(runtime.data, oidc.data, storage.data)
+        let snapshot = Snapshot::assemble(runtime.data, oidc.data, storage.data)?;
+        if self.settings.smtp_required {
+            snapshot.get("smtp_username")?;
+            snapshot.get("smtp_password")?;
+        }
+        Ok(snapshot)
     }
     async fn refresh_inner(&self) -> Result<(), Error> {
         let client = self.client().await?;
