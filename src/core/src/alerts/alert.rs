@@ -25,7 +25,7 @@ use chrono::{Duration, Local, TimeZone, Timelike, Utc};
 #[cfg(feature = "enterprise")]
 use common::utils::http::get_or_create_trace_id;
 use config::{
-    SMTP_CLIENT, TIMESTAMP_COL_NAME, get_config,
+    TIMESTAMP_COL_NAME, get_config,
     meta::{
         alerts::{
             FrequencyType, Operator, QueryType, TriggerEvalResults,
@@ -39,6 +39,7 @@ use config::{
         sql::resolve_stream_names,
         stream::StreamType,
     },
+    send_smtp_email,
     utils::{
         base64,
         json::{Map, Value},
@@ -60,7 +61,7 @@ use infra::{
     table,
 };
 use itertools::Itertools;
-use lettre::{AsyncTransport, Message, message::MultiPart};
+use lettre::{Message, message::MultiPart};
 #[cfg(feature = "enterprise")]
 use o2_enterprise::enterprise::actions::meta::{TriggerActionRequest, TriggerSource};
 #[cfg(feature = "enterprise")]
@@ -1755,7 +1756,7 @@ pub async fn send_email_notification(
         .unwrap();
 
     // Send the email
-    match SMTP_CLIENT.as_ref().unwrap().send(email).await {
+    match send_smtp_email(email).await {
         Ok(resp) => Ok(format!("sent email response code: {}", resp.code())),
         Err(e) => Err(anyhow::anyhow!("Error sending email: {e}")),
     }

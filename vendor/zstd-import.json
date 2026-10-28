@@ -1,0 +1,206 @@
+{
+  "upstream": "zstd 0.14.3",
+  "archive": "https://static.crates.io/crates/zstd/zstd-0.14.3.crate",
+  "archiveSha256": "db3ae9bf90af6e40197bef767eeefc46ad6397420fe873830bd85e5fbbfb3c70",
+  "compatibilityVersion": "0.13.4",
+  "adaptation": "Cargo.toml package version is 0.13.4 and zstd-safe dependency is the fixed 8.2.0 compatibility import at version 7.2.5. All implementation source remains upstream 0.14.3. No advisory suppression. Standalone workspace and a path patch permit exact upstream codec tests without the application graph; immutable upstream legacy test assets are recorded separately.",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "sha256": "e1a531b3e536feb35df8e03987142aa915460d7ef8866a32bc418576a1f4e60e"
+    },
+    {
+      "path": ".gitmodules",
+      "sha256": "1fb176d2c75a0e7c776dbf4777cf3e9eb35374ee9451abcc9595f81460ab2499"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "5e3e697ee65e181f79f3d44516e24a818be28a5625f66a84ec341c2db15982b7"
+    },
+    {
+      "path": "Cargo.toml.orig",
+      "sha256": "e014bc69527ad610eb010fe2cc6866400750a2e4a5d7f916b4a1ed0af3c7305d"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "ce4868c8e4ebe47a7d4b3c93dbf6b802033e5ae2fa7638098173f80836daac60"
+    },
+    {
+      "path": "Readme.md",
+      "sha256": "c8f9c819f1fe7cccb7c44fcfc3ed1b18838a92592abccbd35965bd38b8d75129"
+    },
+    {
+      "path": "assets/example.txt",
+      "sha256": "4cb7244eeb2a509161452d126ea8c5711a74f076dda956198004ea514ced62cd"
+    },
+    {
+      "path": "examples/basic.rs",
+      "sha256": "bd55c00ad6b937422ebd1a20bd91c46886630f3ff5722008e2eee18bbff2528a"
+    },
+    {
+      "path": "examples/benchmark.rs",
+      "sha256": "7d6e979a933758cf8f03e58e7697a5be8ebcc2dcdab1745784614b5528cf70e8"
+    },
+    {
+      "path": "examples/stream.rs",
+      "sha256": "93590a49edcb1ce5601bb8412c687bebfdc42a3f36ba755fe222c366b3e4cd1b"
+    },
+    {
+      "path": "examples/throughput.rs",
+      "sha256": "37d66ba9a4a950f7ab1658f63418ffc08337bbaf720d7f8297d586fba74f6f4c"
+    },
+    {
+      "path": "examples/train.rs",
+      "sha256": "13a72eb1759f86309f3e084263b247ccc23f686d483a57c862f69c79e87f2600"
+    },
+    {
+      "path": "examples/zstd.rs",
+      "sha256": "c1ea68ca97ceb95a3b18a2657d897b11aefa452f015c79cfc670aa03ac2e152d"
+    },
+    {
+      "path": "examples/zstdcat.rs",
+      "sha256": "20d44a9c3a7c3380161ecd19ae6e7d929868926495fb6afbedfc74cf839eb5a7"
+    },
+    {
+      "path": "rustfmt.toml",
+      "sha256": "fc86263cef689505484650b8d55855a48855e359d703eea529e65220b30a1663"
+    },
+    {
+      "path": "src/bulk/compressor.rs",
+      "sha256": "a1d9c59d22f99f9fe168e6245df0318657b059cbecb489cc8daa164958b48247"
+    },
+    {
+      "path": "src/bulk/decompressor.rs",
+      "sha256": "75f62110eb4068abda5ea3def9de63bc2602bffae97f84e829132acd7883ec47"
+    },
+    {
+      "path": "src/bulk/mod.rs",
+      "sha256": "af0e65cfbf1ec2258ecb43324364b8174ec5bdf4429dc3fa5d989412e600d63b"
+    },
+    {
+      "path": "src/bulk/tests.rs",
+      "sha256": "7038c416aefe7d94fd64b1e1b52fc37bf7e9dde71c4e1b7b636e671d84cca9f9"
+    },
+    {
+      "path": "src/dict.rs",
+      "sha256": "f87f5a68de4c11999f77402210d27399ab1e770b3036ba3090fdbac60aa6e814"
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "6175d6b1bdb86629ba1c934fdf42021112f70287934f1f7d6fa26b3215afe522"
+    },
+    {
+      "path": "src/stream/functions.rs",
+      "sha256": "03a36ec1f7dfdaaa2d8a36cb2b4f93e3475f52fe872e352cffa4d77c12bd4314"
+    },
+    {
+      "path": "src/stream/mod.rs",
+      "sha256": "a3b3d106cffa9ff3c609702eba5f6e45bc08680ece9a9a0a268f700368d88bca"
+    },
+    {
+      "path": "src/stream/raw.rs",
+      "sha256": "1f3d8294ea61bc5fa62e8ad3973e0aff12a067df5f9095b82378dd4c238e7e91"
+    },
+    {
+      "path": "src/stream/read/mod.rs",
+      "sha256": "1010985c7566cea712e118e13b81ac8eb4884b26bcacb71bc39184fb9e509b45"
+    },
+    {
+      "path": "src/stream/read/tests.rs",
+      "sha256": "c6401bc3f19ed037b256f5094cb41232a247736404814ad961fc4fa43f2d5e29"
+    },
+    {
+      "path": "src/stream/tests.rs",
+      "sha256": "8892508f14d9b9e5f956ab92f398be71b8cf3b8db7311dc3c7e97bd97fc14161"
+    },
+    {
+      "path": "src/stream/write/mod.rs",
+      "sha256": "762750ef93f908e717efe0005b2172a1886edd457feb05dba74051a6e0d6319e"
+    },
+    {
+      "path": "src/stream/write/tests.rs",
+      "sha256": "d619d9e10657d317f12ba213867181c864dad216154cf52ef376d99b67a48b42"
+    },
+    {
+      "path": "src/stream/zio/mod.rs",
+      "sha256": "db9ba321d5f0087aa733959fc7ddeba7e8c2fd09d33a9d8b950fa1cf2c4853c3"
+    },
+    {
+      "path": "src/stream/zio/reader.rs",
+      "sha256": "b359fcbdca96a5bdeda1186c0a4a90ecacc47b6f9aed1f90a9bb19b48571151e"
+    },
+    {
+      "path": "src/stream/zio/writer.rs",
+      "sha256": "e5c37e3f9a50feb135d1c8f9e54e3ca145d5c12bec12e98cd85ecb96850d0451"
+    },
+    {
+      "path": "tests/invalid_dictionary.rs",
+      "sha256": "3c14beda5511ad8e14b868113c3fe5196b4630db726f4e74776aa73ecc69157b"
+    },
+    {
+      "path": "tests/issue_182.rs",
+      "sha256": "c8244640bf021cf50a24d4d1f76b146e1327210e70f985ef57da63eaedeb009b"
+    },
+    {
+      "path": "tests/issue_251.rs",
+      "sha256": "1ec2601291fbe61fbb876a4fe59861218d349543776cd81c76ff2c7f3bf21f80"
+    },
+    {
+      "path": "tests/issue_381.rs",
+      "sha256": "0c41a487a4573688d98d18b404252b0623c16d109ad8869c70ae3cd3248aca2f"
+    },
+    {
+      "path": "tests/issue_382.rs",
+      "sha256": "943ea981241cf9fbf9c847f4bb624f119cb8526f6ada70f8f4c1428383f57912"
+    },
+    {
+      "path": "tests/support/rust_allocator.rs",
+      "sha256": "ae3a7c63e09856073798c9f9179366c55c305a41ae067a6a315956ca97e5ee64"
+    },
+    {
+      "path": "tests/with_rust_allocator.rs",
+      "sha256": "1894f864bfe664e3be799caa77bd826dacaf33a698028631bb7cf29cb2906516"
+    },
+    {
+      "path": "tests/with_rust_allocator_dictionaries.rs",
+      "sha256": "7d2505d4a369d38b88f954c135cf8c921d2b9d64e4addad6611655e33cebb2f7"
+    },
+    {
+      "path": "tests/with_rust_allocator_stream.rs",
+      "sha256": "9cf22714d9638ffc87040f37d5cba8414e9274b2044ac8653d992f3e12607e3f"
+    }
+  ],
+  "upstreamRevision": "75bc74045a2f6ea0439aeed7e159a266da20aac0",
+  "testAssets": [
+    {
+      "path": "assets/example.txt.v5.zst",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/assets/example.txt.v5.zst",
+      "sha256": "ebfaf65e6e655826cc0055b9f9b02b7a9843f7a5c8c67e774b489f7e5976c1f1"
+    },
+    {
+      "path": "assets/example.txt.v6.zst",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/assets/example.txt.v6.zst",
+      "sha256": "be0867a817fb9cea3cd4f706cb16b1d33719eb46ee38f84aa0ae55dc003134b0"
+    },
+    {
+      "path": "assets/example.txt.v7.zst",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/assets/example.txt.v7.zst",
+      "sha256": "91ffbd29e52705fa983e061e411eacc4c3ed8384b7eea8de4721bd177b57e6c7"
+    },
+    {
+      "path": "assets/example.txt.v8.zst",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/assets/example.txt.v8.zst",
+      "sha256": "03b63e22d3e0daee3ee58fa44935ea3f3470eb222c406cd788d25c4f7de399f3"
+    },
+    {
+      "path": "assets/example.txt.zst",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/assets/example.txt.zst",
+      "sha256": "e9efb44e2c8e06e9302de855b05b5f68200ffa300477c9a8c0fe4f7d108421d2"
+    },
+    {
+      "path": "zstd-safe/zstd-sys/src/bindings_zstd.rs",
+      "url": "https://raw.githubusercontent.com/gyscos/zstd-rs/75bc74045a2f6ea0439aeed7e159a266da20aac0/zstd-safe/zstd-sys/src/bindings_zstd.rs",
+      "sha256": "67b0f32c7f9d7870ac9777e199c08cff7cd196575b699747f7a22e1996dd6265"
+    }
+  ]
+}

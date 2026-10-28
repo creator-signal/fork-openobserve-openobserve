@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use chromiumoxide::{Page, browser::Browser, cdp::browser_protocol::page::PrintToPdfParams};
 use chrono::Timelike;
 use config::{
-    SMTP_CLIENT, get_chrome_launch_options, get_config,
+    get_chrome_launch_options, get_config,
     meta::{
         dashboards::{
             datetime_now,
@@ -31,6 +31,7 @@ use config::{
         },
         folder::Folder,
     },
+    send_smtp_email,
     utils::time::now_micros,
 };
 use cron::Schedule;
@@ -45,7 +46,7 @@ use infra::{
 };
 use itertools::Itertools;
 use lettre::{
-    AsyncTransport, Message,
+    Message,
     message::{MultiPart, SinglePart, header::ContentType},
 };
 use reqwest::Client;
@@ -536,7 +537,7 @@ pub enum SendReportError {
     ParseContentTypeError(#[from] lettre::message::header::ContentTypeErr),
 
     #[error("Error sending email: {0}")]
-    SendEmailError(#[from] lettre::transport::smtp::Error),
+    SendEmailError(#[from] anyhow::Error),
 
     #[error(transparent)]
     GenerateReportError(#[from] GenerateReportError),
@@ -678,7 +679,7 @@ async fn send_email(
         .unwrap();
 
     // Send the email
-    match SMTP_CLIENT.as_ref().unwrap().send(email).await {
+    match send_smtp_email(email).await {
         Ok(_) => {
             log::info!("email sent successfully for the report {}", report.name);
             Ok(())

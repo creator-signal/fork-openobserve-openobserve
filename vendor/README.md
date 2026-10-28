@@ -1,5 +1,27 @@
 # Vector enrichment compatibility source
 
+## Zstandard security compatibility (#18)
+
+`zstd-compat` contains the checksum-verified crates.io **zstd 0.14.3** source,
+including its licence and tests. `zstd-import.json` records the archive checksum
+and every original file hash. Its package version is adapted to `0.13.4`
+so the existing Arrow/DataFusion/Parquet/Tantivy/VRL dependency constraints can
+consume the fixed implementation without importing unrelated major upgrades.
+`zstd-safe-compat` similarly contains exact fixed **zstd-safe 8.2.0** source
+under compatibility package version `7.2.5`; `zstd-safe-import.json` records
+the verified archive and every source hash. The high-level compatibility
+manifest selects that binding so existing direct `compression-codecs` callers
+and high-level callers share the same types. These manifest-only adaptations
+do not retain the vulnerable 7.2.4 implementation. Consumers already accepting
+the 0.14/8.2 APIs continue using their unchanged registry packages.
+
+This replaces the implementation affected by RUSTSEC-2026-0391 and removes the
+old zstd-safe line affected by RUSTSEC-2026-0398/0403; it does not suppress an
+advisory or add an audit exception. Native CI checks the exact imported bytes,
+executes the upstream codec tests, and builds both OSS and OIDC consumers.
+Retire this compatibility import when all pinned upstream consumers accept
+the fixed 0.14 API directly. Preserve the source provenance and licences.
+
 These two small MPL-2.0 crates are imported from `openobserve/vector` revision
 `5b87303cb89c1279407f9b64f267ff6a546fc679`, the revision previously selected by
 the application lockfile. `vector-import.json` records the original file hashes

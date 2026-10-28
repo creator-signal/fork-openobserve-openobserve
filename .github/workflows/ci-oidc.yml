@@ -43,6 +43,8 @@ jobs:
           sudo apt-get install -y protobuf-compiler libssl-dev pkg-config
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Verify fixed Zstandard compatibility source
+        run: python3 tests/security-zstd/verify-import.py
       - name: Check unchanged OSS build
         run: cargo check --locked
       - name: Check OIDC build
@@ -62,6 +64,9 @@ jobs:
             grep -Eq 'test result: ok\. [1-9][0-9]* passed' "$log"
           }
           run_tests root-redaction --locked -p config root_credential_is_not_serialized
+          run_tests smtp --locked -p config smtp_
+          run_tests zstd --locked --manifest-path vendor/zstd-compat/Cargo.toml --target-dir .tmp/security-zstd/cargo
+          run_tests zstd-safe --locked --manifest-path vendor/zstd-safe-compat/Cargo.toml --features seekable --target-dir .tmp/security-zstd/cargo
           run_tests enrichment --locked -p enrichment
           run_tests oidc --locked -p openobserve-api-common --features oidc auth::oidc::tests
           run_tests automation --locked -p openobserve-api-common --features oidc auth::automation::tests
